@@ -207,9 +207,56 @@ bool tev_clear_timeout(tev_handle_t tev_handle, tev_timeout_handle_t handle)
 
 /* Fd read handler */
 
-bool tev_set_read_handler(tev_handle_t tev, int fd, void (*handler)(void *ctx), void *ctx)
+bool match_handler_by_fd(void* data, void* arg)
 {
-    
+    int fd = *(int*)arg;
+    tev_fd_handler_t *fd_handler = (tev_fd_handler_t *)data;
+    return fd_handler->fd == fd;
+}
+
+bool tev_set_read_handler(tev_handle_t handle, int fd, void (*handler)(void *ctx), void *ctx)
+{
+    if(!handle)
+        return false;
+    tev_t *tev = (tev_t *)handle;
+    tev_fd_handler_t *fd_handler = array_find(tev->fd_handlers,match_handler_by_fd,&fd);
+    if(fd_handler == NULL)
+    {
+        // new fd handler
+        if(handler != NULL)
+        {
+            // add
+            fd_handler = array_push(tev->fd_handlers,NULL);
+            fd_handler->fd = fd;
+            fd_handler->ctx = ctx;
+            fd_handler->handler = handler;
+            struct epoll_event ev;
+            ev.events = EPOLLIN;
+            ev.data.ptr = fd_handler;
+            return epoll_ctl(tev->epollfd,EPOLL_CTL_ADD,fd,&ev) == 0;
+        }
+        else
+        {
+            return false;
+        }
+    }
+    else
+    {
+        // existing fd handler
+        if(handler != NULL)
+        {
+            // update
+            fd_handler->ctx = ctx;
+            fd_handler->handler = handler;
+            // no need to update epoll
+            return true;
+        }
+        else
+        {
+            // remove
+            return epoll_ctl(tev->epollfd,EPOLL_CTL_DEL,fd,NULL) == 0;
+        }
+    }
     return false;
 }
 
