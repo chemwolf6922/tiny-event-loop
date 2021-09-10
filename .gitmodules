@@ -1,0 +1,3 @@
+[submodule "cArray"]
+	path = cArray
+	url = https://github.com/chemwolf6922/cArray.git
