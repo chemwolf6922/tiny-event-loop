@@ -1,50 +1,220 @@
 #include "tev.h"
 #include <stdint.h>
 #include <stdbool.h>
+#include <stddef.h>
+#include <string.h>
 #include <stdlib.h>
+#include <unistd.h>
 #include <sys/epoll.h>
+#include <sys/time.h>
+#include "cArray/array.h"
+
+/* structs */
+
+typedef struct
+{
+    int epollfd;
+    // used to assist epoll
+    array_handle_t fd_handlers;
+    // timers is a sorted array
+    array_handle_t timers;
+} tev_t;
+
+typedef int64_t timestamp_t;
+typedef struct
+{
+    timestamp_t target;
+    void(*handler)(void* ctx);
+    void *ctx;
+} tev_timeout_t;
+
+typedef struct
+{
+    int fd;
+    void(*handler)(void* ctx);
+    void* ctx;
+} tev_fd_handler_t;
+
+typedef struct
+{
+    void (*then)(void *ctx, void *arg);
+    void (*on_reject)(void *ctx, void *reason);
+    void *ctx;
+} tev_promise_t;
+
+/* pre defined functions */
+timestamp_t get_now_ms(void);
 
 /* Flow control */
 
-typedef struct
-{
-
-} tev_t;
-
 tev_handle_t tev_create_ctx(void)
 {
+    tev_t *tev = malloc(sizeof(tev_t));
+    if(!tev)
+        goto error;
+    memset(tev,0,sizeof(*tev));
+    tev->epollfd = -1;
+    tev->timers = NULL;
+    tev->fd_handlers = NULL;
+    // create epoll fd
+    tev->epollfd = epoll_create1(0);
+    if(tev->epollfd == -1)
+        goto error;
+    // create fd handler list
+    if(array_create(&tev->fd_handlers,sizeof(tev_fd_handler_t))<0)
+        goto error;
+    // create timer list
+    if(array_create(&tev->timers,sizeof(tev_timeout_t))<0)
+        goto error;
 
+    return (tev_handle_t)tev;
+error:
+    if(tev->epollfd != -1)
+        close(tev->epollfd);
+    if(tev->timers != NULL)
+        array_delete(tev->timers);
+    if(tev->fd_handlers != NULL)
+        array_delete(tev->fd_handlers);
+    if(tev != NULL)
+        free(tev);
+    return NULL;
 }
 
-void tev_main_loop(tev_handle_t tev)
+#define MAX_EPOLL_EVENTS 10
+void tev_main_loop(tev_handle_t handle)
 {
-
+    if(handle == NULL)
+    {
+        return;
+    }
+    tev_t *tev = (tev_t *)handle;
+    struct epoll_event events[MAX_EPOLL_EVENTS];
+    int next_timeout;
+    for(;;)
+    {
+        // are there any files to listen to
+        next_timeout = array_length(tev->fd_handlers)!=0?-1:0;
+        // process due timers
+        if(array_length(tev->timers)!=0)
+        {
+            timestamp_t now = get_now_ms();
+            for(;;)
+            {
+                tev_timeout_t *p_timeout = array_get(tev->timers,0);
+                if(p_timeout == NULL)
+                    break;
+                if(p_timeout->target <= now)
+                {
+                    tev_timeout_t timeout;
+                    array_shift(tev->timers, &timeout);
+                    timeout.handler(timeout.ctx);
+                }
+                else
+                {
+                    next_timeout = p_timeout->target - now;
+                    break;
+                }
+            }
+        }
+        // wait for timers & fds
+        if(next_timeout == 0)
+        {
+            // neither timer nor fds exist
+            break;
+        }
+        int nfds = epoll_wait(tev->epollfd,events,MAX_EPOLL_EVENTS,next_timeout);
+        // handle files
+        for(int i=0;i<nfds;i++)
+        {
+            tev_fd_handler_t *fd_handler = (tev_fd_handler_t*)events[i].data.ptr;
+            fd_handler->handler(fd_handler->ctx);
+        }
+    }
 }
 
-void tev_free_ctx(tev_handle_t tev)
+void tev_free_ctx(tev_handle_t handle)
 {
-
+    if(handle == NULL)
+    {
+        return;
+    }
+    tev_t *tev = (tev_t *)handle;
+    close(tev->epollfd);
+    array_delete(tev->timers);
+    array_delete(tev->fd_handlers);
+    free(tev);
 }
 
 /* Timeout */
-typedef struct
+
+timestamp_t get_now_ms(void)
 {
+    struct timeval now;
+    gettimeofday(&now,NULL);
+    timestamp_t now_ts = (timestamp_t)now.tv_sec * 1000 + (timestamp_t)now.tv_usec/1000;
+    return now_ts;
+}
 
-} tev_timeout_t;
+tev_timeout_handle_t tev_set_timeout(tev_handle_t handle, void (*handler)(void *ctx), void *ctx, int64_t timeout_ms)
+{
+    if(handle == NULL)
+        return NULL;
+    tev_t *tev = (tev_t *)handle;
+    timestamp_t target = get_now_ms() + timeout_ms;
+    int i = 0;
+    tev_timeout_t* p_timeout = NULL;
+    array_forEach(tev->timers,p_timeout)
+    {
+        if(p_timeout->target < target)
+        {
+            i++;
+        }
+        else
+        {
+            break;
+        }
+    }
+    tev_timeout_t* new_timeout = array_insert(tev->timers,NULL,i);
+    if(!new_timeout)
+        return NULL;
+    new_timeout->target = target;
+    new_timeout->ctx = ctx;
+    new_timeout->handler = handler;
+    return (tev_timeout_handle_t)new_timeout;
+}
 
-tev_timeout_handle_t tev_set_timeout(tev_handle_t tev, void (*handler)(void *ctx), void *ctx, int64_t timeout_ms);
-bool tev_clear_timeout(tev_handle_t tev, tev_timeout_handle_t handle);
+bool match_by_data_ptr(void* data, void* arg)
+{
+    return data == arg;
+}
+
+bool tev_clear_timeout(tev_handle_t tev_handle, tev_timeout_handle_t handle)
+{
+    if(tev_handle == NULL)
+        return false;
+    tev_t * tev = (tev_t *)tev_handle;
+    array_delete_match(tev->timers,match_by_data_ptr,handle);
+    return true;
+}
 
 /* Fd read handler */
 
-bool tev_set_read_handler(tev_handle_t tev, int fd, void (*handler)(void *ctx), void *ctx);
+bool tev_set_read_handler(tev_handle_t tev, int fd, void (*handler)(void *ctx), void *ctx)
+{
+    return false;
+}
 
 /* Promise */
-typedef struct
-{
-    /* data */
-} tev_promise_t;
 
-tev_promise_handle_t tev_new_promise(tev_handle_t tev, void (*then)(void *ctx, void *arg), void (*on_reject)(void *ctx, void *reason), void *ctx);
-bool tev_resolve_promise(tev_handle_t tev, tev_promise_handle_t promise, void *arg);
-bool tev_reject_promise(tev_handle_t tev, tev_promise_handle_t promise, void *reason);
+tev_promise_handle_t tev_new_promise(tev_handle_t tev, void (*then)(void *ctx, void *arg), void (*on_reject)(void *ctx, void *reason), void *ctx)
+{
+    return NULL;
+}
+bool tev_resolve_promise(tev_handle_t tev, tev_promise_handle_t promise, void *arg)
+{
+    return false;
+}
+bool tev_reject_promise(tev_handle_t tev, tev_promise_handle_t promise, void *reason)
+{
+    return false;
+}
