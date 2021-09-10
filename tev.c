@@ -18,6 +18,8 @@ typedef struct
     array_handle_t fd_handlers;
     // timers is a sorted array
     array_handle_t timers;
+    // used to fool proof promise
+    array_handle_t promises;
 } tev_t;
 
 typedef int64_t timestamp_t;
@@ -66,11 +68,16 @@ tev_handle_t tev_create_ctx(void)
     // create timer list
     if(array_create(&tev->timers,sizeof(tev_timeout_t))<0)
         goto error;
+    // create promise list
+    if(array_create(&tev->promises,sizeof(tev_promise_t))<0)
+        goto error;
 
     return (tev_handle_t)tev;
 error:
     if(tev->epollfd != -1)
         close(tev->epollfd);
+    if(tev->promises != NULL)
+        array_delete(tev->promises);
     if(tev->timers != NULL)
         array_delete(tev->timers);
     if(tev->fd_handlers != NULL)
@@ -140,6 +147,7 @@ void tev_free_ctx(tev_handle_t handle)
     }
     tev_t *tev = (tev_t *)handle;
     close(tev->epollfd);
+    array_delete(tev->promises);
     array_delete(tev->timers);
     array_delete(tev->fd_handlers);
     free(tev);
@@ -201,20 +209,52 @@ bool tev_clear_timeout(tev_handle_t tev_handle, tev_timeout_handle_t handle)
 
 bool tev_set_read_handler(tev_handle_t tev, int fd, void (*handler)(void *ctx), void *ctx)
 {
+    
     return false;
 }
 
 /* Promise */
 
-tev_promise_handle_t tev_new_promise(tev_handle_t tev, void (*then)(void *ctx, void *arg), void (*on_reject)(void *ctx, void *reason), void *ctx)
+tev_promise_handle_t tev_new_promise(tev_handle_t handle, void (*then)(void *ctx, void *arg), void (*on_reject)(void *ctx, void *reason), void *ctx)
 {
-    return NULL;
+    if(!handle)
+        return NULL;
+    tev_t *tev = (tev_t *)handle;
+    tev_promise_t *promise = array_push(tev->promises,NULL);
+    if(!promise)
+        return NULL;
+    promise->ctx = ctx;
+    promise->then = then;
+    promise->on_reject = on_reject;
+    return (tev_promise_handle_t)promise;
 }
-bool tev_resolve_promise(tev_handle_t tev, tev_promise_handle_t promise, void *arg)
+
+bool tev_resolve_promise(tev_handle_t handle, tev_promise_handle_t promise_handle, void *arg)
 {
+    if(!handle)
+        return false;
+    tev_t *tev = (tev_t *)handle;
+    tev_promise_t *promise = (tev_promise_t *)promise_handle;
+    if(array_find(tev->promises,match_by_data_ptr,promise)!=NULL)
+    {
+        promise->then(promise->ctx,arg);
+        array_delete_match(tev->promises,match_by_data_ptr,promise);
+        return true;
+    }
     return false;
 }
-bool tev_reject_promise(tev_handle_t tev, tev_promise_handle_t promise, void *reason)
+
+bool tev_reject_promise(tev_handle_t handle, tev_promise_handle_t promise_handle, void *reason)
 {
+    if(!handle)
+        return false;
+    tev_t *tev = (tev_t *)handle;
+    tev_promise_t *promise = (tev_promise_t *)promise_handle;
+    if(array_find(tev->promises,match_by_data_ptr,promise)!=NULL)
+    {
+        promise->on_reject(promise->ctx,reason);
+        array_delete_match(tev->promises,match_by_data_ptr,promise);
+        return true;
+    }
     return false;
 }
