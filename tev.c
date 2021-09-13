@@ -114,7 +114,8 @@ void tev_main_loop(tev_handle_t handle)
                 {
                     tev_timeout_t timeout;
                     array_shift(tev->timers, &timeout);
-                    timeout.handler(timeout.ctx);
+                    if(timeout.handler != NULL)
+                        timeout.handler(timeout.ctx);
                 }
                 else
                 {
@@ -134,7 +135,8 @@ void tev_main_loop(tev_handle_t handle)
         for(int i=0;i<nfds;i++)
         {
             tev_fd_handler_t *fd_handler = (tev_fd_handler_t*)events[i].data.ptr;
-            fd_handler->handler(fd_handler->ctx);
+            if(fd_handler != NULL)
+                fd_handler->handler(fd_handler->ctx);
         }
     }
 }
@@ -284,7 +286,8 @@ bool tev_resolve_promise(tev_handle_t handle, tev_promise_handle_t promise_handl
     tev_promise_t *promise = (tev_promise_t *)promise_handle;
     if(array_find(tev->promises,match_by_data_ptr,promise)!=NULL)
     {
-        promise->then(promise->ctx,arg);
+        if(promise->then != NULL)
+            promise->then(promise->ctx,arg);
         array_delete_match(tev->promises,match_by_data_ptr,promise);
         return true;
     }
@@ -299,7 +302,8 @@ bool tev_reject_promise(tev_handle_t handle, tev_promise_handle_t promise_handle
     tev_promise_t *promise = (tev_promise_t *)promise_handle;
     if(array_find(tev->promises,match_by_data_ptr,promise)!=NULL)
     {
-        promise->on_reject(promise->ctx,reason);
+        if(promise->on_reject != NULL)
+            promise->on_reject(promise->ctx,reason);
         array_delete_match(tev->promises,match_by_data_ptr,promise);
         return true;
     }
