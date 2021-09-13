@@ -8,6 +8,7 @@
 #include <sys/epoll.h>
 #include <sys/time.h>
 #include "cArray/array.h"
+#include "cHeap/heap.h"
 
 /* structs */
 
@@ -16,8 +17,8 @@ typedef struct
     int epollfd;
     // used to assist epoll
     array_handle_t fd_handlers;
-    // timers is a sorted array
-    array_handle_t timers;
+    // timers is a minimum heap
+    heap_handle_t timers;
     // used to fool proof promise
     array_handle_t promises;
 } tev_t;
@@ -46,6 +47,7 @@ typedef struct
 
 /* pre defined functions */
 timestamp_t get_now_ms(void);
+bool compare_timeout(void* A,void* B);
 
 /* Flow control */
 
@@ -66,7 +68,8 @@ tev_handle_t tev_create_ctx(void)
     if(array_create(&tev->fd_handlers,sizeof(tev_fd_handler_t))<0)
         goto error;
     // create timer list
-    if(array_create(&tev->timers,sizeof(tev_timeout_t))<0)
+    tev->timers = heap_create(compare_timeout);
+    if(!tev->timers)
         goto error;
     // create promise list
     if(array_create(&tev->promises,sizeof(tev_promise_t))<0)
@@ -79,7 +82,7 @@ error:
     if(tev->promises != NULL)
         array_delete(tev->promises);
     if(tev->timers != NULL)
-        array_delete(tev->timers);
+        heap_free(tev->timers,NULL);
     if(tev->fd_handlers != NULL)
         array_delete(tev->fd_handlers);
     if(tev != NULL)
@@ -102,20 +105,21 @@ void tev_main_loop(tev_handle_t handle)
         // are there any files to listen to
         next_timeout = array_length(tev->fd_handlers)!=0?-1:0;
         // process due timers
-        if(array_length(tev->timers)!=0)
+        if(heap_get_length(tev->timers)!=0)
         {
             timestamp_t now = get_now_ms();
             for(;;)
             {
-                tev_timeout_t *p_timeout = array_get(tev->timers,0);
+                tev_timeout_t *p_timeout = heap_get(tev->timers);
                 if(p_timeout == NULL)
                     break;
                 if(p_timeout->target <= now)
                 {
-                    tev_timeout_t timeout;
-                    array_shift(tev->timers, &timeout);
-                    if(timeout.handler != NULL)
-                        timeout.handler(timeout.ctx);
+                    // heap does not manage values like array do.
+                    heap_pop(tev->timers);
+                    if(p_timeout->handler != NULL)
+                        p_timeout->handler(p_timeout->ctx);
+                    free(p_timeout);
                 }
                 else
                 {
@@ -150,7 +154,7 @@ void tev_free_ctx(tev_handle_t handle)
     tev_t *tev = (tev_t *)handle;
     close(tev->epollfd);
     array_delete(tev->promises);
-    array_delete(tev->timers);
+    heap_free(tev->timers,free);
     array_delete(tev->fd_handlers);
     free(tev);
 }
@@ -165,31 +169,31 @@ timestamp_t get_now_ms(void)
     return now_ts;
 }
 
+bool compare_timeout(void* A,void* B)
+{
+    tev_timeout_t* timeout_A = (tev_timeout_t*)A;
+    tev_timeout_t* timeout_B = (tev_timeout_t*)B;
+    return timeout_A->target > timeout_B->target;
+}
+
 tev_timeout_handle_t tev_set_timeout(tev_handle_t handle, void (*handler)(void *ctx), void *ctx, int64_t timeout_ms)
 {
     if(handle == NULL)
         return NULL;
     tev_t *tev = (tev_t *)handle;
     timestamp_t target = get_now_ms() + timeout_ms;
-    int i = 0;
-    tev_timeout_t* p_timeout = NULL;
-    array_forEach(tev->timers,p_timeout)
-    {
-        if(p_timeout->target < target)
-        {
-            i++;
-        }
-        else
-        {
-            break;
-        }
-    }
-    tev_timeout_t* new_timeout = array_insert(tev->timers,NULL,i);
+    tev_timeout_t* new_timeout = malloc(sizeof(tev_timeout_t));
     if(!new_timeout)
         return NULL;
     new_timeout->target = target;
     new_timeout->ctx = ctx;
     new_timeout->handler = handler;
+    bool add_result = heap_add(tev->timers,new_timeout);
+    if(!add_result)
+    {
+        free(new_timeout);
+        return NULL;
+    }
     return (tev_timeout_handle_t)new_timeout;
 }
 
@@ -203,7 +207,8 @@ bool tev_clear_timeout(tev_handle_t tev_handle, tev_timeout_handle_t handle)
     if(tev_handle == NULL)
         return false;
     tev_t * tev = (tev_t *)tev_handle;
-    array_delete_match(tev->timers,match_by_data_ptr,handle);
+    if(heap_delete(tev->timers,handle))
+        free(handle);
     return true;
 }
 

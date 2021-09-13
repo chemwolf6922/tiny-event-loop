@@ -26,10 +26,10 @@ $(BUILD_DIR)libtev.a:$(patsubst %.c,$(BUILD_DIR)%.o,$(LIBSRCS)) $(LIBS)
 	$(AR) -rcs -o $@ $^
 
 $(BUILD_DIR)libarray.a:cArray
-	$(MAKE) -C $< lib BUILD_DIR=$(BUILD_DIR)
+	$(MAKE) -C $< lib BUILD_DIR=$(BUILD_DIR) CFLAGS=$(CFLAGS)
 
 $(BUILD_DIR)libheap.a:cHeap
-	$(MAKE) -C $< lib BUILD_DIR=$(BUILD_DIR)
+	$(MAKE) -C $< lib BUILD_DIR=$(BUILD_DIR) CFLAGS=$(CFLAGS)
 
 $(patsubst %.c,$(BUILD_DIR)%.d,$(APPSRCS)):
 include $(patsubst %.c,$(BUILD_DIR)%.d,$(APPSRCS))
