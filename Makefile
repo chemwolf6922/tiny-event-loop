@@ -2,9 +2,9 @@ CC?=gcc
 AR?=ar
 BUILD_DIR?=$(shell pwd)/build/
 
-CFLAGS=-Og
+CFLAGS=-O3
 LDFLAGS=
-LIBS=$(BUILD_DIR)libarray.a
+LIBS=$(BUILD_DIR)libarray.a $(BUILD_DIR)libheap.a
 
 LIBSRCS=tev.c
 APPSRCS=test.c $(LIBSRCS) 
@@ -26,7 +26,10 @@ $(BUILD_DIR)libtev.a:$(patsubst %.c,$(BUILD_DIR)%.o,$(LIBSRCS)) $(LIBS)
 	$(AR) -rcs -o $@ $^
 
 $(BUILD_DIR)libarray.a:cArray
-	$(MAKE) -C $< BUILD_DIR=$(BUILD_DIR)
+	$(MAKE) -C $< lib BUILD_DIR=$(BUILD_DIR)
+
+$(BUILD_DIR)libheap.a:cHeap
+	$(MAKE) -C $< lib BUILD_DIR=$(BUILD_DIR)
 
 $(patsubst %.c,$(BUILD_DIR)%.d,$(APPSRCS)):
 include $(patsubst %.c,$(BUILD_DIR)%.d,$(APPSRCS))

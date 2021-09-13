@@ -17,13 +17,21 @@ int main(int argc, char const *argv[])
     return 0;
 }
 
+static tev_timeout_handle_t test_timer = NULL;
+
 void periodic_print_hello(void* ctx)
 {
     printf("hello\n");
-    tev_set_timeout(tev,periodic_print_hello,NULL,1000);
+    test_timer = tev_set_timeout(tev,periodic_print_hello,NULL,1000);
+}
+
+void cancel_print_hello(void* ctx)
+{
+    tev_clear_timeout(tev,test_timer);
 }
 
 void init_script(void)
 {
-    tev_set_timeout(tev,periodic_print_hello,NULL,1000);
+    periodic_print_hello(NULL);
+    tev_set_timeout(tev,cancel_print_hello,NULL,5000);
 }
