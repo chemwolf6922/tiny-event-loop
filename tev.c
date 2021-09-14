@@ -269,7 +269,7 @@ bool tev_set_read_handler(tev_handle_t handle, int fd, void (*handler)(void *ctx
 
 /* Promise */
 
-tev_promise_handle_t tev_new_promise(tev_handle_t handle, void (*then)(void *ctx, void *arg), void (*on_reject)(void *ctx, void *reason), void *ctx)
+tev_promise_handle_t tev_new_promise(tev_handle_t handle, void (*then)(void *ctx, void *arg), void (*on_reject)(void *ctx, char *reason), void *ctx)
 {
     if(!handle)
         return NULL;

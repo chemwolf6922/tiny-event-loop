@@ -33,7 +33,7 @@ bool tev_set_read_handler(tev_handle_t tev, int fd, void (*handler)(void* ctx), 
 
 typedef void *tev_promise_handle_t;
 
-tev_promise_handle_t tev_new_promise(tev_handle_t tev, void (*then)(void *ctx, void *arg), void (*on_reject)(void *ctx, void *reason), void *ctx);
+tev_promise_handle_t tev_new_promise(tev_handle_t tev, void (*then)(void *ctx, void *arg), void (*on_reject)(void *ctx, char *reason), void *ctx);
 bool tev_resolve_promise(tev_handle_t tev, tev_promise_handle_t promise, void *arg);
 bool tev_reject_promise(tev_handle_t tev, tev_promise_handle_t promise, void *reason);
 
