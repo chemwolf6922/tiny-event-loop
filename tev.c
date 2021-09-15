@@ -41,7 +41,7 @@ typedef struct
 typedef struct
 {
     void (*then)(void *ctx, void *arg);
-    void (*on_reject)(void *ctx, void *reason);
+    void (*on_reject)(void *ctx, char *reason);
     void *ctx;
 } tev_promise_t;
 
