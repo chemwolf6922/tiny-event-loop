@@ -102,8 +102,7 @@ void tev_main_loop(tev_handle_t handle)
     int next_timeout;
     for(;;)
     {
-        // are there any files to listen to
-        next_timeout = array_length(tev->fd_handlers)!=0?-1:0;
+        next_timeout = 0;
         // process due timers
         if(heap_get_length(tev->timers)!=0)
         {
@@ -127,6 +126,11 @@ void tev_main_loop(tev_handle_t handle)
                     break;
                 }
             }
+        }
+        // are there any files to listen to
+        if(next_timeout == 0 && array_length(tev->fd_handlers)!=0)
+        {
+            next_timeout = -1;
         }
         // wait for timers & fds
         if(next_timeout == 0)
@@ -261,7 +265,8 @@ bool tev_set_read_handler(tev_handle_t handle, int fd, void (*handler)(void *ctx
         else
         {
             // remove
-            return epoll_ctl(tev->epollfd,EPOLL_CTL_DEL,fd,NULL) == 0;
+            epoll_ctl(tev->epollfd,EPOLL_CTL_DEL,fd,NULL) == 0;
+            array_delete_match(tev->fd_handlers,match_handler_by_fd,&fd);
         }
     }
     return false;

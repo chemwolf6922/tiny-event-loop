@@ -1,5 +1,6 @@
 CC?=gcc
 AR?=ar
+LIBTOOL=libtool
 BUILD_DIR?=$(shell pwd)/build/
 
 CFLAGS=-O3
@@ -23,7 +24,15 @@ $(BUILD_DIR)app:$(patsubst %.c,$(BUILD_DIR)%.o,$(APPSRCS)) $(LIBS)
 	$(CC) $(LDFLAGS) -o $@ $^
 
 $(BUILD_DIR)libtev.a:$(patsubst %.c,$(BUILD_DIR)%.o,$(LIBSRCS)) $(LIBS)
-	$(AR) -rcs -o $@ $^
+	@mkdir -p $(BUILD_DIR)tevlibobjs
+	for lib in $(LIBS); do \
+		$(AR) --output=$(BUILD_DIR)tevlibobjs -x $$lib; \
+	done
+	for obj in $(filter %.o,$^); do \
+		cp $$obj $(BUILD_DIR)tevlibobjs; \
+	done
+	$(AR) -rcs -o $@ $(BUILD_DIR)tevlibobjs/*.o
+	@rm -r $(BUILD_DIR)tevlibobjs
 
 $(BUILD_DIR)libarray.a:cArray
 	$(MAKE) -C $< lib BUILD_DIR=$(BUILD_DIR) CFLAGS=$(CFLAGS)
