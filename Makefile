@@ -1,47 +1,39 @@
-CC?=gcc
-AR?=ar
-LIBTOOL=libtool
-BUILD_DIR?=$(shell pwd)/build/
+CFLAGS?=-O3
+CFLAGS+=-MMD -MP
+LDFLAGS?=
+STATIC_LIB=libtev.a
+LIB_SRC=tev.c
+TEST_SRC=test.c $(LIB_SRC)
 
-CFLAGS=-O3
-LDFLAGS=
-LIBS=$(BUILD_DIR)libarray.a $(BUILD_DIR)libheap.a
+LIB_ARRAY=cArray/libarray.a
+LIB_HEAP=cHeap/libheap.a
+LIBS=$(LIB_ARRAY) $(LIB_HEAP)
 
-LIBSRCS=tev.c
-APPSRCS=test.c $(LIBSRCS) 
+all:test lib
 
-all:$(BUILD_DIR)app lib
-
-lib:$(BUILD_DIR)libtev.a
-
-$(BUILD_DIR)%.o:%.c $(BUILD_DIR)%.d | $(BUILD_DIR)
-	$(CC) -MT $@ -MMD -MP -MF $(BUILD_DIR)$*.d $(CFLAGS) -o $@ -c $<
-
-$(BUILD_DIR):
-	@mkdir -p $@
-
-$(BUILD_DIR)app:$(patsubst %.c,$(BUILD_DIR)%.o,$(APPSRCS)) $(LIBS)
+test:$(patsubst %.c,%.o,$(TEST_SRC)) $(LIBS)
 	$(CC) $(LDFLAGS) -o $@ $^
 
-$(BUILD_DIR)libtev.a:$(patsubst %.c,$(BUILD_DIR)%.o,$(LIBSRCS)) $(LIBS)
-	@mkdir -p $(BUILD_DIR)tevlibobjs
+lib:$(STATIC_LIB)
+
+$(STATIC_LIB):$(patsubst %.c,%.o,$(LIB_SRC)) $(LIBS)
 	for lib in $(LIBS); do \
-		$(AR) --output=$(BUILD_DIR)tevlibobjs -x $$lib; \
+		$(AR) -x $$lib; \
 	done
-	for obj in $(filter %.o,$^); do \
-		cp $$obj $(BUILD_DIR)tevlibobjs; \
-	done
-	$(AR) -rcs -o $@ $(BUILD_DIR)tevlibobjs/*.o
-	@rm -r $(BUILD_DIR)tevlibobjs
+	$(AR) -rcs -o $@ *.o
 
-$(BUILD_DIR)libarray.a:cArray
-	$(MAKE) -C $< lib BUILD_DIR=$(BUILD_DIR) CFLAGS=$(CFLAGS)
+$(LIB_ARRAY):cArray
+	$(MAKE) -C $< lib
 
-$(BUILD_DIR)libheap.a:cHeap
-	$(MAKE) -C $< lib BUILD_DIR=$(BUILD_DIR) CFLAGS=$(CFLAGS)
+$(LIB_HEAP):cHeap
+	$(MAKE) -C $< lib
 
-$(patsubst %.c,$(BUILD_DIR)%.d,$(APPSRCS)):
-include $(patsubst %.c,$(BUILD_DIR)%.d,$(APPSRCS))
+%.o:%.c
+	$(CC) $(CFLAGS) -c $<
+
+-include $(TEST_SRC:.c=.d)
 
 clean:
-	rm -rf $(BUILD_DIR)
+	$(MAKE) -C cArray clean
+	$(MAKE) -C cHeap clean
+	rm -f *.o *.d test $(STATIC_LIB) 

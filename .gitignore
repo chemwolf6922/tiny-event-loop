@@ -1,2 +1,6 @@
 /build
 /.vscode
+/*.o
+/*.d
+/test
+/libtev.a
