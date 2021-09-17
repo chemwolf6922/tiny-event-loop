@@ -320,6 +320,7 @@ int tev_resolve_promise(tev_handle_t handle, tev_promise_handle_t promise_handle
     {
         if(promise->then != NULL)
             promise->then(promise->ctx,arg);
+        free(promise);
         return 0;
     }
     return -1;
@@ -335,6 +336,7 @@ int tev_reject_promise(tev_handle_t handle, tev_promise_handle_t promise_handle,
     {
         if(promise->on_reject != NULL)
             promise->on_reject(promise->ctx,reason);
+        free(promise);
         return 0;
     }
     return -1;
