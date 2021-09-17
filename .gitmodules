@@ -1,6 +1,6 @@
-[submodule "cArray"]
-	path = cArray
-	url = git@github.com:chemwolf6922/cArray.git
 [submodule "cHeap"]
 	path = cHeap
 	url = git@github.com:chemwolf6922/cHeap.git
+[submodule "map"]
+	path = map
+	url = git@github.com:chemwolf6922/map-xxhash.git

@@ -5,9 +5,9 @@ STATIC_LIB=libtev.a
 LIB_SRC=tev.c
 TEST_SRC=test.c $(LIB_SRC)
 
-LIB_ARRAY=cArray/libarray.a
+LIB_MAP=map/libmap.a
 LIB_HEAP=cHeap/libheap.a
-LIBS=$(LIB_ARRAY) $(LIB_HEAP)
+LIBS=$(LIB_HEAP) $(LIB_MAP)
 
 all:test lib
 
@@ -22,10 +22,10 @@ $(STATIC_LIB):$(patsubst %.c,%.o,$(LIB_SRC)) $(LIBS)
 	done
 	$(AR) -rcs -o $@ *.o
 
-$(LIB_ARRAY):cArray
+$(LIB_HEAP):cHeap
 	$(MAKE) -C $< lib
 
-$(LIB_HEAP):cHeap
+$(LIB_MAP):map
 	$(MAKE) -C $< lib
 
 %.o:%.c
@@ -34,6 +34,6 @@ $(LIB_HEAP):cHeap
 -include $(TEST_SRC:.c=.d)
 
 clean:
-	$(MAKE) -C cArray clean
 	$(MAKE) -C cHeap clean
+	$(MAKE) -C map clean
 	rm -f *.o *.d test $(STATIC_LIB) 

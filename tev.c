@@ -7,8 +7,8 @@
 #include <unistd.h>
 #include <sys/epoll.h>
 #include <sys/time.h>
-#include "cArray/array.h"
 #include "cHeap/heap.h"
+#include "map/map.h"
 
 /* structs */
 
@@ -16,11 +16,11 @@ typedef struct
 {
     int epollfd;
     // used to assist epoll
-    array_handle_t fd_handlers;
+    map_handle_t fd_handlers;
     // timers is a minimum heap
     heap_handle_t timers;
     // used to fool proof promise
-    array_handle_t promises;
+    map_handle_t promises;
 } tev_t;
 
 typedef int64_t timestamp_t;
@@ -65,14 +65,16 @@ tev_handle_t tev_create_ctx(void)
     if(tev->epollfd == -1)
         goto error;
     // create fd handler list
-    if(array_create(&tev->fd_handlers,sizeof(tev_fd_handler_t))<0)
+    tev->fd_handlers = map_create();
+    if(!tev->fd_handlers)
         goto error;
     // create timer list
     tev->timers = heap_create(compare_timeout);
     if(!tev->timers)
         goto error;
     // create promise list
-    if(array_create(&tev->promises,sizeof(tev_promise_t))<0)
+    tev->promises = map_create();
+    if(!tev->promises)
         goto error;
 
     return (tev_handle_t)tev;
@@ -80,11 +82,11 @@ error:
     if(tev->epollfd != -1)
         close(tev->epollfd);
     if(tev->promises != NULL)
-        array_delete(tev->promises);
+        map_delete(tev->fd_handlers,NULL,NULL);
     if(tev->timers != NULL)
         heap_free(tev->timers,NULL);
     if(tev->fd_handlers != NULL)
-        array_delete(tev->fd_handlers);
+        map_delete(tev->fd_handlers,NULL,NULL);
     if(tev != NULL)
         free(tev);
     return NULL;
@@ -128,7 +130,7 @@ void tev_main_loop(tev_handle_t handle)
             }
         }
         // are there any files to listen to
-        if(next_timeout == 0 && array_length(tev->fd_handlers)!=0)
+        if(next_timeout == 0 && map_get_length(tev->fd_handlers)!=0)
         {
             next_timeout = -1;
         }
@@ -149,6 +151,11 @@ void tev_main_loop(tev_handle_t handle)
     }
 }
 
+void free_with_ctx(void* ptr,void* ctx)
+{
+    free(ptr);
+}
+
 void tev_free_ctx(tev_handle_t handle)
 {
     if(handle == NULL)
@@ -157,9 +164,9 @@ void tev_free_ctx(tev_handle_t handle)
     }
     tev_t *tev = (tev_t *)handle;
     close(tev->epollfd);
-    array_delete(tev->promises);
+    map_delete(tev->promises,free_with_ctx,NULL);
     heap_free(tev->timers,free);
-    array_delete(tev->fd_handlers);
+    map_delete(tev->fd_handlers,free_with_ctx,NULL);
     free(tev);
 }
 
@@ -206,14 +213,14 @@ bool match_by_data_ptr(void* data, void* arg)
     return data == arg;
 }
 
-bool tev_clear_timeout(tev_handle_t tev_handle, tev_timeout_handle_t handle)
+int tev_clear_timeout(tev_handle_t tev_handle, tev_timeout_handle_t handle)
 {
     if(tev_handle == NULL)
-        return false;
+        return -1;
     tev_t * tev = (tev_t *)tev_handle;
     if(heap_delete(tev->timers,handle))
         free(handle);
-    return true;
+    return 0;
 }
 
 /* Fd read handler */
@@ -225,30 +232,42 @@ bool match_handler_by_fd(void* data, void* arg)
     return fd_handler->fd == fd;
 }
 
-bool tev_set_read_handler(tev_handle_t handle, int fd, void (*handler)(void *ctx), void *ctx)
+int tev_set_read_handler(tev_handle_t handle, int fd, void (*handler)(void *ctx), void *ctx)
 {
     if(!handle)
-        return false;
+        return -1;
     tev_t *tev = (tev_t *)handle;
-    tev_fd_handler_t *fd_handler = array_find(tev->fd_handlers,match_handler_by_fd,&fd);
+    tev_fd_handler_t *fd_handler = map_get(tev->fd_handlers,&fd,sizeof(fd));
     if(fd_handler == NULL)
     {
         // new fd handler
         if(handler != NULL)
         {
             // add
-            fd_handler = array_push(tev->fd_handlers,NULL);
+            fd_handler = malloc(sizeof(*fd_handler));
+            if(!fd_handler)
+                return -1;
+            if(map_add(tev->fd_handlers,&fd,sizeof(fd),fd_handler)==NULL)
+            {
+                free(fd_handler);
+                return -1;
+            }
             fd_handler->fd = fd;
             fd_handler->ctx = ctx;
             fd_handler->handler = handler;
             struct epoll_event ev;
             ev.events = EPOLLIN;
             ev.data.ptr = fd_handler;
-            return epoll_ctl(tev->epollfd,EPOLL_CTL_ADD,fd,&ev) == 0;
+            if(epoll_ctl(tev->epollfd,EPOLL_CTL_ADD,fd,&ev)<0)
+            {
+                map_remove(tev->fd_handlers,&fd,sizeof(fd));
+                free(fd_handler);
+                return -1;
+            }
         }
         else
         {
-            return false;
+            return -1;
         }
     }
     else
@@ -259,17 +278,15 @@ bool tev_set_read_handler(tev_handle_t handle, int fd, void (*handler)(void *ctx
             // update
             fd_handler->ctx = ctx;
             fd_handler->handler = handler;
-            // no need to update epoll
-            return true;
         }
         else
         {
             // remove
             epoll_ctl(tev->epollfd,EPOLL_CTL_DEL,fd,NULL) == 0;
-            array_delete_match(tev->fd_handlers,match_handler_by_fd,&fd);
+            map_remove(tev->fd_handlers,&fd,sizeof(fd));
         }
     }
-    return false;
+    return 0;
 }
 
 /* Promise */
@@ -279,43 +296,46 @@ tev_promise_handle_t tev_new_promise(tev_handle_t handle, void (*then)(void *ctx
     if(!handle)
         return NULL;
     tev_t *tev = (tev_t *)handle;
-    tev_promise_t *promise = array_push(tev->promises,NULL);
+    tev_promise_t *promise = malloc(sizeof(tev_promise_t));
     if(!promise)
         return NULL;
+    if(!map_add(tev->promises,&promise,sizeof(promise),promise))
+    {
+        free(promise);
+        return NULL;
+    }
     promise->ctx = ctx;
     promise->then = then;
     promise->on_reject = on_reject;
     return (tev_promise_handle_t)promise;
 }
 
-bool tev_resolve_promise(tev_handle_t handle, tev_promise_handle_t promise_handle, void *arg)
+int tev_resolve_promise(tev_handle_t handle, tev_promise_handle_t promise_handle, void *arg)
 {
     if(!handle)
-        return false;
+        return -1;
     tev_t *tev = (tev_t *)handle;
     tev_promise_t *promise = (tev_promise_t *)promise_handle;
-    if(array_find(tev->promises,match_by_data_ptr,promise)!=NULL)
+    if(map_remove(tev->promises,&promise,sizeof(promise))!=NULL)
     {
         if(promise->then != NULL)
             promise->then(promise->ctx,arg);
-        array_delete_match(tev->promises,match_by_data_ptr,promise);
-        return true;
+        return 0;
     }
-    return false;
+    return -1;
 }
 
-bool tev_reject_promise(tev_handle_t handle, tev_promise_handle_t promise_handle, void *reason)
+int tev_reject_promise(tev_handle_t handle, tev_promise_handle_t promise_handle, void *reason)
 {
     if(!handle)
-        return false;
+        return -1;
     tev_t *tev = (tev_t *)handle;
     tev_promise_t *promise = (tev_promise_t *)promise_handle;
-    if(array_find(tev->promises,match_by_data_ptr,promise)!=NULL)
+    if(map_remove(tev->promises,&promise,sizeof(promise))!=NULL)
     {
         if(promise->on_reject != NULL)
             promise->on_reject(promise->ctx,reason);
-        array_delete_match(tev->promises,match_by_data_ptr,promise);
-        return true;
+        return 0;
     }
-    return false;
+    return -1;
 }
