@@ -26,8 +26,8 @@ int main(int argc, char const *argv[])
     pipe2(fds,O_CLOEXEC|O_NONBLOCK);
 
     tev_set_read_handler(tev,fds[0],read_handler,&(fds[0]));
-    // periodic_print_hello(NULL);
-    // tev_set_timeout(tev,cancel_print_hello,NULL,5000);
+    periodic_print_hello(NULL);
+    tev_set_timeout(tev,cancel_print_hello,NULL,5000);
     tev_set_timeout(tev,write_some_data,&(fds[1]),500);
     tev_set_timeout(tev,clear_read_handler,&(fds[0]),3000);
     /* user init ends */
