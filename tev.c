@@ -284,6 +284,7 @@ int tev_set_read_handler(tev_handle_t handle, int fd, void (*handler)(void *ctx)
             // remove
             epoll_ctl(tev->epollfd,EPOLL_CTL_DEL,fd,NULL);
             map_remove(tev->fd_handlers,&fd,sizeof(fd));
+            free(fd_handler);
         }
     }
     return 0;
