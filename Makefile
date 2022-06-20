@@ -22,11 +22,11 @@ $(STATIC_LIB):$(patsubst %.c,%.o,$(LIB_SRC)) $(LIBS)
 	done
 	$(AR) -rcs -o $@ *.o
 
-$(LIB_HEAP):cHeap
-	$(MAKE) -C $< lib
+$(LIB_HEAP):
+	$(MAKE) -C cHeap lib
 
-$(LIB_MAP):map
-	$(MAKE) -C $< lib
+$(LIB_MAP):
+	$(MAKE) -C map lib
 
 %.o:%.c
 	$(CC) $(CFLAGS) -c $<
