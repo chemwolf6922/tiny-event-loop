@@ -1,5 +1,5 @@
 CFLAGS?=-O3
-CFLAGS+=-MMD -MP
+override CFLAGS+=-MMD -MP
 LDFLAGS?=
 STATIC_LIB=libtev.a
 LIB_SRC=tev.c
