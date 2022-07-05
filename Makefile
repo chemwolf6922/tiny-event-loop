@@ -3,7 +3,8 @@ override CFLAGS+=-MMD -MP
 LDFLAGS?=
 STATIC_LIB=libtev.a
 LIB_SRC=tev.c
-TEST_SRC=test.c $(LIB_SRC)
+TEST_SRC=test.c
+ALL_SRC=$(TEST_SRC) $(LIB_SRC)
 
 LIB_MAP=map/libmap.a
 LIB_HEAP=cHeap/libheap.a
@@ -11,7 +12,7 @@ LIBS=$(LIB_HEAP) $(LIB_MAP)
 
 all:test lib
 
-test:$(patsubst %.c,%.o,$(TEST_SRC)) $(LIBS)
+test:$(patsubst %.c,%.oo,$(TEST_SRC)) $(patsubst %.c,%.o,$(LIB_SRC)) $(LIBS)
 	$(CC) $(LDFLAGS) -o $@ $^
 
 lib:$(STATIC_LIB)
@@ -28,6 +29,9 @@ $(LIB_HEAP):
 $(LIB_MAP):
 	$(MAKE) -C map lib
 
+%.oo:%.c
+	$(CC) $(CFLAGS) -o $@ -c $<
+
 %.o:%.c
 	$(CC) $(CFLAGS) -c $<
 
@@ -36,4 +40,4 @@ $(LIB_MAP):
 clean:
 	$(MAKE) -C cHeap clean
 	$(MAKE) -C map clean
-	rm -f *.o *.d test $(STATIC_LIB) 
+	rm -f *.oo *.o *.d test $(STATIC_LIB) 

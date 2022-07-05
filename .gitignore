@@ -1,5 +1,6 @@
 /build
 /.vscode
+/*.oo
 /*.o
 /*.d
 /test
