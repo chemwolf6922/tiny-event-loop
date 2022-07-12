@@ -79,16 +79,18 @@ tev_handle_t tev_create_ctx(void)
 
     return (tev_handle_t)tev;
 error:
-    if(tev->epollfd != -1)
-        close(tev->epollfd);
-    if(tev->promises != NULL)
-        map_delete(tev->fd_handlers,NULL,NULL);
-    if(tev->timers != NULL)
-        heap_free(tev->timers,NULL);
-    if(tev->fd_handlers != NULL)
-        map_delete(tev->fd_handlers,NULL,NULL);
-    if(tev != NULL)
+    if(tev)
+    {
+        if(tev->epollfd != -1)
+            close(tev->epollfd);
+        if(tev->promises != NULL)
+            map_delete(tev->fd_handlers,NULL,NULL);
+        if(tev->timers != NULL)
+            heap_free(tev->timers,NULL);
+        if(tev->fd_handlers != NULL)
+            map_delete(tev->fd_handlers,NULL,NULL);
         free(tev);
+    }
     return NULL;
 }
 
