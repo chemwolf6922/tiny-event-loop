@@ -19,8 +19,6 @@ typedef struct
     map_handle_t fd_handlers;
     // timers is a minimum heap
     heap_handle_t timers;
-    // used to fool proof promise
-    map_handle_t promises;
 } tev_t;
 
 typedef int64_t timestamp_t;
@@ -37,13 +35,6 @@ typedef struct
     void(*handler)(void* ctx);
     void* ctx;
 } tev_fd_handler_t;
-
-typedef struct
-{
-    void (*then)(void *ctx, void *arg);
-    void (*on_reject)(void *ctx, char *reason);
-    void *ctx;
-} tev_promise_t;
 
 /* pre defined functions */
 timestamp_t get_now_ms(void);
@@ -72,10 +63,6 @@ tev_handle_t tev_create_ctx(void)
     tev->timers = heap_create(compare_timeout);
     if(!tev->timers)
         goto error;
-    // create promise list
-    tev->promises = map_create();
-    if(!tev->promises)
-        goto error;
 
     return (tev_handle_t)tev;
 error:
@@ -83,8 +70,6 @@ error:
     {
         if(tev->epollfd != -1)
             close(tev->epollfd);
-        if(tev->promises != NULL)
-            map_delete(tev->fd_handlers,NULL,NULL);
         if(tev->timers != NULL)
             heap_free(tev->timers,NULL);
         if(tev->fd_handlers != NULL)
@@ -166,7 +151,6 @@ void tev_free_ctx(tev_handle_t handle)
     }
     tev_t *tev = (tev_t *)handle;
     close(tev->epollfd);
-    map_delete(tev->promises,free_with_ctx,NULL);
     heap_free(tev->timers,free);
     map_delete(tev->fd_handlers,free_with_ctx,NULL);
     free(tev);
@@ -290,57 +274,4 @@ int tev_set_read_handler(tev_handle_t handle, int fd, void (*handler)(void *ctx)
         }
     }
     return 0;
-}
-
-/* Promise */
-
-tev_promise_handle_t tev_new_promise(tev_handle_t handle, void (*then)(void *ctx, void *arg), void (*on_reject)(void *ctx, char *reason), void *ctx)
-{
-    if(!handle)
-        return NULL;
-    tev_t *tev = (tev_t *)handle;
-    tev_promise_t *promise = malloc(sizeof(tev_promise_t));
-    if(!promise)
-        return NULL;
-    if(!map_add(tev->promises,&promise,sizeof(promise),promise))
-    {
-        free(promise);
-        return NULL;
-    }
-    promise->ctx = ctx;
-    promise->then = then;
-    promise->on_reject = on_reject;
-    return (tev_promise_handle_t)promise;
-}
-
-int tev_resolve_promise(tev_handle_t handle, tev_promise_handle_t promise_handle, void *arg)
-{
-    if(!handle)
-        return -1;
-    tev_t *tev = (tev_t *)handle;
-    tev_promise_t *promise = (tev_promise_t *)promise_handle;
-    if(map_remove(tev->promises,&promise,sizeof(promise))!=NULL)
-    {
-        if(promise->then != NULL)
-            promise->then(promise->ctx,arg);
-        free(promise);
-        return 0;
-    }
-    return -1;
-}
-
-int tev_reject_promise(tev_handle_t handle, tev_promise_handle_t promise_handle, void *reason)
-{
-    if(!handle)
-        return -1;
-    tev_t *tev = (tev_t *)handle;
-    tev_promise_t *promise = (tev_promise_t *)promise_handle;
-    if(map_remove(tev->promises,&promise,sizeof(promise))!=NULL)
-    {
-        if(promise->on_reject != NULL)
-            promise->on_reject(promise->ctx,reason);
-        free(promise);
-        return 0;
-    }
-    return -1;
 }
