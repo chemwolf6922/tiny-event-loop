@@ -29,5 +29,9 @@ int tev_clear_timeout(tev_handle_t tev, tev_timeout_handle_t handle);
 
 int tev_set_read_handler(tev_handle_t tev, int fd, void (*handler)(void* ctx), void *ctx);
 
+/* Fd write handler */
+
+int tev_set_write_handler(tev_handle_t tev, int fd, void (*handler)(void* ctx), void* ctx);
+
 
 #endif

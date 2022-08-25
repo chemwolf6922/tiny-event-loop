@@ -11,6 +11,7 @@
 void periodic_print_hello(void* ctx);
 void cancel_print_hello(void* ctx);
 void read_handler(void* ctx);
+void try_write_some_data(void* ctx);
 void write_some_data(void* ctx);
 void clear_read_handler(void* ctx);
 
@@ -28,7 +29,7 @@ int main(int argc, char const *argv[])
     tev_set_read_handler(tev,fds[0],read_handler,&(fds[0]));
     periodic_print_hello(NULL);
     tev_set_timeout(tev,cancel_print_hello,NULL,5000);
-    tev_set_timeout(tev,write_some_data,&(fds[1]),500);
+    tev_set_timeout(tev,try_write_some_data,&(fds[1]),500);
     tev_set_timeout(tev,clear_read_handler,&(fds[0]),3000);
     /* user init ends */
 
@@ -64,10 +65,17 @@ void read_handler(void* ctx)
     printf("Read handler: %s\n",buffer);
 }
 
+void try_write_some_data(void* ctx)
+{
+    int fd = *(int*)ctx;
+    tev_set_write_handler(tev,fd,write_some_data,ctx);
+}
+
 void write_some_data(void* ctx)
 {
-    const char* data="hello";
     int fd = *(int*)ctx;
+    tev_set_write_handler(tev,fd,NULL,NULL);
+    const char* data="hello";
     write(fd,data,strlen(data)+1);
     printf("Write data to pipe.\n");
 }

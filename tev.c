@@ -32,8 +32,10 @@ typedef struct
 typedef struct
 {
     int fd;
-    void(*handler)(void* ctx);
-    void* ctx;
+    void(*read_handler)(void* ctx);
+    void* read_ctx;
+    void(*write_handler)(void* ctx);
+    void* write_ctx;
 } tev_fd_handler_t;
 
 /* pre defined functions */
@@ -133,7 +135,12 @@ void tev_main_loop(tev_handle_t handle)
         {
             tev_fd_handler_t *fd_handler = (tev_fd_handler_t*)events[i].data.ptr;
             if(fd_handler != NULL)
-                fd_handler->handler(fd_handler->ctx);
+            {
+                if((events[i].events & EPOLLIN) && fd_handler->read_handler)
+                    fd_handler->read_handler(fd_handler->read_ctx);
+                if((events[i].events & EPOLLOUT) && fd_handler->write_handler)
+                    fd_handler->write_handler(fd_handler->write_ctx);
+            }
         }
     }
 }
@@ -218,60 +225,94 @@ bool match_handler_by_fd(void* data, void* arg)
     return fd_handler->fd == fd;
 }
 
-int tev_set_read_handler(tev_handle_t handle, int fd, void (*handler)(void *ctx), void *ctx)
+static int tev_set_read_write_handler(tev_handle_t handle, int fd, void (*handler)(void* ctx), void* ctx, bool is_read)
 {
     if(!handle)
         return -1;
     tev_t *tev = (tev_t *)handle;
     tev_fd_handler_t *fd_handler = map_get(tev->fd_handlers,&fd,sizeof(fd));
+    /* create fd_handler if none */
     if(fd_handler == NULL)
     {
-        // new fd handler
-        if(handler != NULL)
+        fd_handler = malloc(sizeof(tev_fd_handler_t));
+        if(!fd_handler)
+            return -1;
+        memset(fd_handler,0,sizeof(tev_fd_handler_t));
+        fd_handler->fd = fd;
+        fd_handler->read_handler = NULL;
+        fd_handler->read_ctx = NULL;
+        fd_handler->write_handler = NULL;
+        fd_handler->write_ctx = NULL;
+        if(map_add(tev->fd_handlers,&fd,sizeof(fd),fd_handler)==NULL)
         {
-            // add
-            fd_handler = malloc(sizeof(*fd_handler));
-            if(!fd_handler)
-                return -1;
-            if(map_add(tev->fd_handlers,&fd,sizeof(fd),fd_handler)==NULL)
-            {
-                free(fd_handler);
-                return -1;
-            }
-            fd_handler->fd = fd;
-            fd_handler->ctx = ctx;
-            fd_handler->handler = handler;
-            struct epoll_event ev;
-            ev.events = EPOLLIN;
-            ev.data.ptr = fd_handler;
-            if(epoll_ctl(tev->epollfd,EPOLL_CTL_ADD,fd,&ev)<0)
-            {
-                map_remove(tev->fd_handlers,&fd,sizeof(fd));
-                free(fd_handler);
-                return -1;
-            }
-        }
-        else
-        {
+            free(fd_handler);
             return -1;
         }
     }
+    /* adjust the content of fd_handler */
+    bool read_handler_existed = fd_handler->read_handler != NULL;
+    bool write_handler_existed = fd_handler->write_handler != NULL;
+    if(is_read)
+    {
+        fd_handler->read_handler = handler;
+        fd_handler->read_ctx = ctx;
+    }
     else
     {
-        // existing fd handler
-        if(handler != NULL)
+        fd_handler->write_handler = handler;
+        fd_handler->write_ctx = ctx;
+    }
+    /* change epoll settings */
+    if((fd_handler->read_handler == NULL) && (fd_handler->write_handler == NULL))
+    {
+        /* remove from epoll and map */
+        epoll_ctl(tev->epollfd,EPOLL_CTL_DEL,fd,NULL);
+        map_remove(tev->fd_handlers,&fd,sizeof(fd));
+        free(fd_handler);
+    }
+    else if((!read_handler_existed) && (!write_handler_existed))
+    {
+        /* add to epoll */
+        struct epoll_event ev;
+        memset(&ev,0,sizeof(ev));
+        if(fd_handler->read_handler != NULL)
+            ev.events |= EPOLLIN;
+        if(fd_handler->write_handler != NULL)
+            ev.events |= EPOLLOUT;
+        ev.data.ptr = fd_handler;
+        if(epoll_ctl(tev->epollfd,EPOLL_CTL_ADD,fd,&ev) < 0)
         {
-            // update
-            fd_handler->ctx = ctx;
-            fd_handler->handler = handler;
-        }
-        else
-        {
-            // remove
-            epoll_ctl(tev->epollfd,EPOLL_CTL_DEL,fd,NULL);
             map_remove(tev->fd_handlers,&fd,sizeof(fd));
             free(fd_handler);
+            return -1;
+        }
+    }
+    else if( (read_handler_existed != (fd_handler->read_handler!=NULL)) || (write_handler_existed != (fd_handler->write_handler!=NULL)) )
+    {
+        /* adjust epoll if needed */
+        struct epoll_event ev;
+        memset(&ev,0,sizeof(ev));
+        if(fd_handler->read_handler != NULL)
+            ev.events |= EPOLLIN;
+        if(fd_handler->write_handler != NULL)
+            ev.events |= EPOLLOUT;
+        ev.data.ptr = fd_handler;
+        if(epoll_ctl(tev->epollfd,EPOLL_CTL_MOD,fd,&ev) < 0)
+        {
+            map_remove(tev->fd_handlers,&fd,sizeof(fd));
+            free(fd_handler);
+            return -1;
         }
     }
     return 0;
+}
+
+int tev_set_read_handler(tev_handle_t handle, int fd, void (*handler)(void *ctx), void *ctx)
+{
+    return tev_set_read_write_handler(handle,fd,handler,ctx,true);
+}
+
+int tev_set_write_handler(tev_handle_t handle, int fd, void (*handler)(void* ctx), void* ctx)
+{
+    return tev_set_read_write_handler(handle,fd,handler,ctx,false);
 }
