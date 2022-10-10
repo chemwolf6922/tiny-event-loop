@@ -1,6 +1,6 @@
-[submodule "cHeap"]
-	path = cHeap
-	url = https://github.com/chemwolf6922/cHeap.git
 [submodule "map"]
 	path = map
 	url = https://github.com/chemwolf6922/map-xxhash.git
+[submodule "heap"]
+	path = heap
+	url = https://github.com/chemwolf6922/cHeapRaw.git

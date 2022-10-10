@@ -55,6 +55,7 @@ void periodic_print_hello(void* ctx)
 void cancel_print_hello(void* ctx)
 {
     tev_clear_timeout(tev,test_timer);
+    tev_clear_timeout(tev,test_timer);
 }
 
 void read_handler(void* ctx)
