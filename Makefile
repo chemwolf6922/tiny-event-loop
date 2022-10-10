@@ -7,7 +7,7 @@ TEST_SRC=test.c
 ALL_SRC=$(TEST_SRC) $(LIB_SRC)
 
 LIB_MAP=map/libmap.a
-LIB_HEAP=cHeap/libheap.a
+LIB_HEAP=heap/libheap.a
 LIBS=$(LIB_HEAP) $(LIB_MAP)
 
 all:test lib
@@ -24,7 +24,7 @@ $(STATIC_LIB):$(patsubst %.c,%.o,$(LIB_SRC)) $(LIBS)
 	$(AR) -rcs -o $@ *.o
 
 $(LIB_HEAP):
-	$(MAKE) -C cHeap lib
+	$(MAKE) -C heap lib
 
 $(LIB_MAP):
 	$(MAKE) -C map lib
@@ -38,6 +38,6 @@ $(LIB_MAP):
 -include $(TEST_SRC:.c=.d)
 
 clean:
-	$(MAKE) -C cHeap clean
+	$(MAKE) -C heap clean
 	$(MAKE) -C map clean
 	rm -f *.oo *.o *.d test $(STATIC_LIB) 
