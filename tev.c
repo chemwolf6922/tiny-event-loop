@@ -242,11 +242,6 @@ tev_timeout_handle_t tev_set_timeout(tev_handle_t handle, void (*handler)(void *
     return new_timeout->handle;
 }
 
-static bool match_by_data_ptr(void* data, void* arg)
-{
-    return data == arg;
-}
-
 int tev_clear_timeout(tev_handle_t tev_handle, tev_timeout_handle_t handle)
 {
     if(tev_handle == NULL)
@@ -263,12 +258,6 @@ int tev_clear_timeout(tev_handle_t tev_handle, tev_timeout_handle_t handle)
 
 /* Fd read handler */
 
-static bool match_handler_by_fd(void* data, void* arg)
-{
-    int fd = *(int*)arg;
-    tev_fd_handler_t *fd_handler = (tev_fd_handler_t *)data;
-    return fd_handler->fd == fd;
-}
 
 static int tev_set_read_write_handler(tev_handle_t handle, int fd, void (*handler)(void* ctx), void* ctx, bool is_read)
 {

@@ -3,6 +3,7 @@
 #endif
 
 #include <stdio.h>
+#include <stdlib.h>
 #include "tev.h"
 #include <unistd.h>
 #include <fcntl.h>
@@ -24,7 +25,8 @@ int main(int argc, char const *argv[])
 
     /* user init starts */
     int fds[2] = {-1,-1};
-    pipe2(fds,O_CLOEXEC|O_NONBLOCK);
+    if(pipe2(fds,O_CLOEXEC|O_NONBLOCK)!=0)
+        abort();
 
     tev_set_read_handler(tev,fds[0],read_handler,&(fds[0]));
     periodic_print_hello(NULL);
@@ -63,6 +65,7 @@ void read_handler(void* ctx)
     char buffer[10] = {0};
     int fd = *(int*)ctx;
     ssize_t readlen = read(fd,buffer,sizeof(buffer));
+    (void)readlen;
     printf("Read handler: %s\n",buffer);
 }
 
@@ -77,7 +80,8 @@ void write_some_data(void* ctx)
     int fd = *(int*)ctx;
     tev_set_write_handler(tev,fd,NULL,NULL);
     const char* data="hello";
-    write(fd,data,strlen(data)+1);
+    int write_len = write(fd,data,strlen(data)+1);
+    (void)write_len;
     printf("Write data to pipe.\n");
 }
 
