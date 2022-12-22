@@ -5,7 +5,11 @@
 #include <string.h>
 #include <stdlib.h>
 #include <unistd.h>
+#ifdef __APPLE__
+#include <sys/event.h>
+#else
 #include <sys/epoll.h>
+#endif
 #include <sys/time.h>
 #include "heap/heap.h"
 #include "map/map.h"
@@ -63,8 +67,13 @@ tev_handle_t tev_create_ctx(void)
     tev->timers = NULL;
     tev->timer_handles = NULL;
     tev->fd_handlers = NULL;
+#ifdef __APPLE__
+    // create kqueue fd
+    tev->epollfd = kqueue();
+#else
     // create epoll fd
     tev->epollfd = epoll_create1(0);
+#endif
     if(tev->epollfd == -1)
         goto error;
     // create fd handler list
@@ -105,7 +114,6 @@ void tev_main_loop(tev_handle_t handle)
         return;
     }
     tev_t *tev = (tev_t *)handle;
-    struct epoll_event events[MAX_EPOLL_EVENTS];
     int next_timeout;
     for(;;)
     {
@@ -145,6 +153,35 @@ void tev_main_loop(tev_handle_t handle)
             // neither timer nor fds exist
             break;
         }
+#ifdef __APPLE__
+        
+        /** convert timeout to timespec */
+        struct timespec* p_next_timeout_spec = NULL;    /** NULL means wait forever */
+        struct timespec next_timeout_spec;
+        if(next_timeout > 0)
+        {
+            p_next_timeout_spec = &next_timeout_spec;
+            memset(&next_timeout_spec,0,sizeof(struct timespec));
+            next_timeout_spec.tv_sec = next_timeout / 1000;
+            next_timeout_spec.tv_nsec = (next_timeout % 1000) * 1000000;
+        }
+        /** handle kqueue */
+        struct kevent events[MAX_EPOLL_EVENTS];
+        int nfds = kevent(tev->epollfd,NULL,0,events,MAX_EPOLL_EVENTS,p_next_timeout_spec);
+        for(int i=0;i<nfds;i++)
+        {
+            tev_fd_handler_t *fd_handler = (tev_fd_handler_t*)events[i].udata;
+            if(fd_handler != NULL)
+            {
+                if((events[i].filter == EVFILT_READ) && fd_handler->read_handler)
+                    fd_handler->read_handler(fd_handler->read_ctx);
+                if((events[i].filter == EVFILT_WRITE) && fd_handler->write_handler)
+                    fd_handler->write_handler(fd_handler->write_ctx);
+            }
+        }
+#else
+        /** handle epoll */
+        struct epoll_event events[MAX_EPOLL_EVENTS];
         int nfds = epoll_wait(tev->epollfd,events,MAX_EPOLL_EVENTS,next_timeout);
         // handle files
         for(int i=0;i<nfds;i++)
@@ -158,6 +195,7 @@ void tev_main_loop(tev_handle_t handle)
                     fd_handler->write_handler(fd_handler->write_ctx);
             }
         }
+#endif
     }
 }
 
@@ -296,6 +334,64 @@ static int tev_set_read_write_handler(tev_handle_t handle, int fd, void (*handle
         fd_handler->write_handler = handler;
         fd_handler->write_ctx = ctx;
     }
+#ifdef __APPLE__
+    int ret = 0;
+    /** cahnge kqueue settings */
+    if(read_handler_existed && (fd_handler->read_handler == NULL))
+    {
+        /** delete read event */
+        struct kevent ev;
+        EV_SET(&ev, fd, EVFILT_READ, EV_DELETE, 0, 0, fd_handler);
+        if(kevent(tev->epollfd,&ev,1,NULL,0,NULL) == -1)
+        {
+            ret = -1;
+            goto finish_kqueue_ops;
+        }
+    }
+    if((!read_handler_existed) && (fd_handler->read_handler != NULL))
+    {
+        /** add read event */
+        struct kevent ev;
+        EV_SET(&ev, fd, EVFILT_READ, EV_ADD, 0, 0, fd_handler);
+        if(kevent(tev->epollfd,&ev,1,NULL,0,NULL) == -1)
+        {
+            fd_handler->read_handler = NULL;
+            ret = -1;
+            goto finish_kqueue_ops;
+        }
+    }
+    if(write_handler_existed && (fd_handler->write_handler == NULL))
+    {
+        /** delete write event */
+        struct kevent ev;
+        EV_SET(&ev, fd, EVFILT_WRITE, EV_DELETE, 0, 0, fd_handler);
+        if(kevent(tev->epollfd,&ev,1,NULL,0,NULL) == -1)
+        {
+            ret = -1;
+            goto finish_kqueue_ops;
+        }
+    }
+    if((!read_handler_existed) && (fd_handler->write_handler != NULL))
+    {
+        /** add write event */
+        struct kevent ev;
+        EV_SET(&ev, fd, EVFILT_WRITE, EV_ADD, 0, 0, fd_handler);
+        if(kevent(tev->epollfd,&ev,1,NULL,0,NULL) == -1)
+        {
+            fd_handler->read_handler = NULL;
+            ret = -1;
+            goto finish_kqueue_ops;
+        }
+    }
+finish_kqueue_ops:
+    /** clear map entry */
+    if((fd_handler->read_handler == NULL) && (fd_handler->write_handler == NULL))
+    {
+        map_remove(tev->fd_handlers,&fd,sizeof(fd));
+        free(fd_handler);
+    }
+    return ret;
+#else
     /* change epoll settings */
     if((fd_handler->read_handler == NULL) && (fd_handler->write_handler == NULL))
     {
@@ -339,6 +435,7 @@ static int tev_set_read_write_handler(tev_handle_t handle, int fd, void (*handle
         }
     }
     return 0;
+#endif
 }
 
 int tev_set_read_handler(tev_handle_t handle, int fd, void (*handler)(void *ctx), void *ctx)

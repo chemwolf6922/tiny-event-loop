@@ -25,8 +25,21 @@ int main(int argc, char const *argv[])
 
     /* user init starts */
     int fds[2] = {-1,-1};
+#ifdef __APPLE__
+    if(pipe(fds)!=0)
+        abort();
+    if(fcntl(fds[0],F_SETFD,fcntl(fds[0],F_GETFD)|FD_CLOEXEC)==-1)
+        abort();
+    if(fcntl(fds[0],F_SETFL,fcntl(fds[0],F_GETFL)|O_NONBLOCK)==-1)
+        abort();
+    if(fcntl(fds[1],F_SETFD,fcntl(fds[1],F_GETFD)|FD_CLOEXEC)==-1)
+        abort();
+    if(fcntl(fds[1],F_SETFL,fcntl(fds[1],F_GETFL)|O_NONBLOCK)==-1)
+        abort();
+#else
     if(pipe2(fds,O_CLOEXEC|O_NONBLOCK)!=0)
         abort();
+#endif
 
     tev_set_read_handler(tev,fds[0],read_handler,&(fds[0]));
     periodic_print_hello(NULL);
