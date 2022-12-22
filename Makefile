@@ -21,7 +21,7 @@ $(STATIC_LIB):$(patsubst %.c,%.o,$(LIB_SRC)) $(LIBS)
 	for lib in $(LIBS); do \
 		$(AR) -x $$lib; \
 	done
-	$(AR) -rcs -o $@ *.o
+	$(AR) -rcs $@ *.o
 
 $(LIB_HEAP):
 	$(MAKE) -C heap lib
