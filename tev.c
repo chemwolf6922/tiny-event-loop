@@ -189,7 +189,7 @@ void tev_main_loop(tev_handle_t handle)
             tev_fd_handler_t *fd_handler = (tev_fd_handler_t*)events[i].data.ptr;
             if(fd_handler != NULL)
             {
-                if((events[i].events & EPOLLIN) && fd_handler->read_handler)
+                if(((events[i].events & EPOLLIN) || (events[i].events & EPOLLHUP)) && fd_handler->read_handler)
                     fd_handler->read_handler(fd_handler->read_ctx);
                 if((events[i].events & EPOLLOUT) && fd_handler->write_handler)
                     fd_handler->write_handler(fd_handler->write_ctx);
