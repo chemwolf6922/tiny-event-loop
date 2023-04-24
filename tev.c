@@ -14,6 +14,9 @@
 #include "heap/heap.h"
 #include "map/map.h"
 
+/** This MUST be 1 to allow safely removal of fd handlers inside a fd handler */
+#define MAX_EPOLL_EVENTS 1
+
 /* structs */
 
 typedef struct
@@ -21,6 +24,8 @@ typedef struct
     int epollfd;
     // used to assist epoll
     map_handle_t fd_handlers;
+    // label if the current fd handler is freed inside a read handler to avoid invalid read
+    bool fd_handler_freed_in_read_handler;
     // timers is a minimum heap
     heap_handle_t timers;
     // used to assist timer
@@ -106,7 +111,6 @@ error:
     return NULL;
 }
 
-#define MAX_EPOLL_EVENTS 10
 void tev_main_loop(tev_handle_t handle)
 {
     if(handle == NULL)
@@ -173,9 +177,10 @@ void tev_main_loop(tev_handle_t handle)
             tev_fd_handler_t *fd_handler = (tev_fd_handler_t*)events[i].udata;
             if(fd_handler != NULL)
             {
+                tev->fd_handler_freed_in_read_handler = false;
                 if((events[i].filter == EVFILT_READ) && fd_handler->read_handler)
                     fd_handler->read_handler(fd_handler->read_ctx);
-                if((events[i].filter == EVFILT_WRITE) && fd_handler->write_handler)
+                if((events[i].filter == EVFILT_WRITE) && (!tev->fd_handler_freed_in_read_handler) && fd_handler->write_handler)
                     fd_handler->write_handler(fd_handler->write_ctx);
             }
         }
@@ -189,9 +194,10 @@ void tev_main_loop(tev_handle_t handle)
             tev_fd_handler_t *fd_handler = (tev_fd_handler_t*)events[i].data.ptr;
             if(fd_handler != NULL)
             {
+                tev->fd_handler_freed_in_read_handler = false;
                 if(((events[i].events & EPOLLIN) || (events[i].events & EPOLLHUP)) && fd_handler->read_handler)
                     fd_handler->read_handler(fd_handler->read_ctx);
-                if((events[i].events & EPOLLOUT) && fd_handler->write_handler)
+                if((events[i].events & EPOLLOUT) && (!tev->fd_handler_freed_in_read_handler) && fd_handler->write_handler)
                     fd_handler->write_handler(fd_handler->write_ctx);
             }
         }
@@ -389,6 +395,8 @@ finish_kqueue_ops:
     {
         map_remove(tev->fd_handlers,&fd,sizeof(fd));
         free(fd_handler);
+        /** may be inside a read handler, if not, this has no effect */
+        tev->fd_handler_freed_in_read_handler = true;
     }
     return ret;
 #else
@@ -399,6 +407,8 @@ finish_kqueue_ops:
         epoll_ctl(tev->epollfd,EPOLL_CTL_DEL,fd,NULL);
         map_remove(tev->fd_handlers,&fd,sizeof(fd));
         free(fd_handler);
+        /** may be inside a read handler, if not, this has no effect */
+        tev->fd_handler_freed_in_read_handler = true;
     }
     else if((!read_handler_existed) && (!write_handler_existed))
     {
