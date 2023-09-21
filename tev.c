@@ -1,3 +1,5 @@
+#define _GNU_SOURCE
+
 #include "tev.h"
 #include <stdint.h>
 #include <stdbool.h>
@@ -10,7 +12,7 @@
 #else
 #include <sys/epoll.h>
 #endif
-#include <sys/time.h>
+#include <time.h>
 #include "heap/heap.h"
 #include "map/map.h"
 
@@ -236,9 +238,9 @@ static tev_timeout_handle_t get_next_timer_handle(tev_t* tev)
 
 static timestamp_t get_now_ms(void)
 {
-    struct timeval now;
-    gettimeofday(&now,NULL);
-    timestamp_t now_ts = (timestamp_t)now.tv_sec * 1000 + (timestamp_t)now.tv_usec/1000;
+    struct timespec now;
+    clock_gettime(CLOCK_MONOTONIC, &now);
+    timestamp_t now_ts = (timestamp_t)now.tv_sec * 1000 + (timestamp_t)now.tv_nsec/1000000;
     return now_ts;
 }
 
