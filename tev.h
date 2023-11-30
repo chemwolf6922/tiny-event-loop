@@ -5,7 +5,7 @@
 #include <stdbool.h>
 
 
-#define TINY_EVENT_LOOP_VERSION "v1.3.3"
+#define TINY_EVENT_LOOP_VERSION "v1.3.4"
 /**
  * Notice: 
  * As an event loop, this lib is not, will not be and should not be thread safe.
