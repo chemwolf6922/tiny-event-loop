@@ -47,7 +47,6 @@ typedef struct
 
 typedef struct
 {
-    int fd;
     void(*read_handler)(void* ctx);
     void* read_ctx;
     void(*write_handler)(void* ctx);
@@ -318,7 +317,6 @@ static int tev_set_read_write_handler(tev_handle_t handle, int fd, void (*handle
         if(!fd_handler)
             return -1;
         memset(fd_handler,0,sizeof(tev_fd_handler_t));
-        fd_handler->fd = fd;
         fd_handler->read_handler = NULL;
         fd_handler->read_ctx = NULL;
         fd_handler->write_handler = NULL;
