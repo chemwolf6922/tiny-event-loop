@@ -58,3 +58,23 @@ clean:
 	$(MAKE) -C heap clean
 	$(MAKE) -C map clean
 	rm -f *.oo *.o *.d test $(STATIC_LIB) $(SHARED_LIB)*
+
+install:lib
+	install -d $(DESTDIR)/usr/lib
+	install -m 644 $(STATIC_LIB) $(DESTDIR)/usr/lib
+	install -m 644 $(SHARED_LIB).$(LIBTEV_VERSION) $(DESTDIR)/usr/lib
+	ln -sf $(DESTDIR)/usr/lib/$(SHARED_LIB).$(LIBTEV_VERSION) $(DESTDIR)/usr/lib/$(SHARED_LIB).$(LIBTEV_VERSION_MAJOR)
+	ln -sf $(DESTDIR)/usr/lib/$(SHARED_LIB).$(LIBTEV_VERSION) $(DESTDIR)/usr/lib/$(SHARED_LIB)
+	install -d $(DESTDIR)/usr/include/tev
+	install -m 644 tev.h $(DESTDIR)/usr/include/tev
+	install -m 644 heap/heap.h $(DESTDIR)/usr/include/tev
+	install -m 644 map/map.h $(DESTDIR)/usr/include/tev
+	install -m 644 map/xxHash/xxhash.h $(DESTDIR)/usr/include/tev
+
+uninstall:
+	rm -f $(DESTDIR)/usr/lib/$(STATIC_LIB)
+	rm -f $(DESTDIR)/usr/lib/$(SHARED_LIB)*
+	rm -f $(DESTDIR)/usr/include/tev/tev.h
+	rm -f $(DESTDIR)/usr/include/tev/heap.h
+	rm -f $(DESTDIR)/usr/include/tev/map.h
+	rm -f $(DESTDIR)/usr/include/tev/xxhash.h
