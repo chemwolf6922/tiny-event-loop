@@ -1,8 +1,2 @@
 /build
 /.vscode
-/*.oo
-/*.o
-/*.d
-/test
-/libtev.a
-/libtev.so*

@@ -21,6 +21,8 @@ static tev_handle_t tev = NULL;
 /* errors are not handled for simplicity */
 int main(int argc, char const *argv[])
 {
+    (void)argc;
+    (void)argv;
     tev = tev_create_ctx();
 
     /* user init starts */
@@ -63,12 +65,14 @@ static tev_timeout_handle_t test_timer = NULL;
 
 void periodic_print_hello(void* ctx)
 {
+    (void)ctx;
     printf("hello\n");
     test_timer = tev_set_timeout(tev,periodic_print_hello,NULL,1000);
 }
 
 void cancel_print_hello(void* ctx)
 {
+    (void)ctx;
     tev_clear_timeout(tev,test_timer);
     tev_clear_timeout(tev,test_timer);
 }
