@@ -32,8 +32,8 @@ target_link_libraries(tev_shared PUBLIC heap map)
 
 # Test executable (only when built as top-level project)
 if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
-    add_executable(tev_test test.c)
-    target_link_libraries(tev_test PRIVATE tev)
+    add_executable(test_functional test/test_functional.c)
+    target_link_libraries(test_functional PRIVATE tev)
 endif()
 
 # Install
