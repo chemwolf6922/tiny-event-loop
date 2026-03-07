@@ -208,6 +208,7 @@ void tev_main_loop(tev_handle_t handle)
 
 void free_with_ctx(void* ptr,void* ctx)
 {
+    (void)ctx;
     free(ptr);
 }
 

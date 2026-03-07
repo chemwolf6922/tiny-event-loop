@@ -1,0 +1,41 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+
+jobs:
+  build-and-test:
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            install: sudo apt-get update && sudo apt-get install -y cmake pkg-config libxxhash-dev valgrind
+            memcheck: valgrind --leak-check=full --error-exitcode=1 ./build/test_functional
+          - os: macos-latest
+            install: brew install cmake pkg-config xxhash
+            memcheck: leaks --atExit -- ./build/test_functional
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install dependencies
+        run: ${{ matrix.install }}
+
+      - name: Configure
+        run: cmake -B build -DCMAKE_BUILD_TYPE=Debug
+
+      - name: Build
+        run: cmake --build build
+
+      - name: Run functional test
+        run: ./build/test_functional
+
+      - name: Run functional test with memory check
+        run: ${{ matrix.memcheck }}
