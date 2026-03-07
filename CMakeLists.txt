@@ -15,12 +15,6 @@ option(USE_SIMPLE_HASH "Use simple built-in hash instead of xxHash (forwarded to
 add_subdirectory(heap)
 add_subdirectory(map)
 
-# Resolve xxhash link directories for shared library linking
-if(NOT USE_SIMPLE_HASH)
-    find_package(PkgConfig REQUIRED)
-    pkg_check_modules(XXHASH REQUIRED libxxhash)
-endif()
-
 # Library
 add_library(tev STATIC tev.c)
 target_include_directories(tev PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
@@ -35,9 +29,6 @@ set_target_properties(tev_shared PROPERTIES
 )
 target_include_directories(tev_shared PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(tev_shared PUBLIC heap map)
-if(NOT USE_SIMPLE_HASH)
-    target_link_directories(tev_shared PRIVATE ${XXHASH_LIBRARY_DIRS})
-endif()
 
 # Test executable (only when built as top-level project)
 if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
