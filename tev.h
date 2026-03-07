@@ -7,8 +7,6 @@
 extern "C" {
 #endif
 
-#define TINY_EVENT_LOOP_VERSION "v1.3.5"
-
 /**
  * @warning
  * As an event loop, this lib is not, will not be and should not be thread safe.
