@@ -78,6 +78,19 @@ int tev_clear_timeout(tev_handle_t tev, tev_timeout_handle_t handle);
  */
 int tev_set_read_handler(tev_handle_t tev, int fd, void (*handler)(void* ctx), void *ctx);
 
+/**
+ * @brief Set / clear a read handler for a fd. This will overwrite the existing read handler if any.
+ * @note This behaves the same as tev_set_read_handler. Except that the handler has an extra parameter for the fd.
+ * @warning Mix use of tev_set_read_handler and tev_set_read_handler2 is not recommended.
+ * 
+ * @param tev event loop handle.
+ * @param fd file descriptor to set the handler for.
+ * @param handler read handler, NULL to clear the handler.
+ * @param ctx read handler context.
+ * @return int 0 if success, -1 if failed.
+ */
+int tev_set_read_handler2(tev_handle_t tev, int fd, void (*handler)(int fd, void* ctx), void* ctx);
+
 /* Fd write handler */
 
 /**
@@ -90,6 +103,19 @@ int tev_set_read_handler(tev_handle_t tev, int fd, void (*handler)(void* ctx), v
  * @return int 0 if success, -1 if failed.
  */
 int tev_set_write_handler(tev_handle_t tev, int fd, void (*handler)(void* ctx), void* ctx);
+
+/**
+ * @brief Set / clear a write handler for a fd. This will overwrite the existing write handler if any.
+ * @note This behaves the same as tev_set_write_handler. Except that the handler has an extra parameter for the fd.
+ * @warning Mix use of tev_set_write_handler and tev_set_write_handler2 is not recommended.
+ * 
+ * @param tev event loop handle.
+ * @param fd file descriptor to set the handler for.
+ * @param handler write handler, NULL to clear the handler.
+ * @param ctx write handler context.
+ * @return int 0 if success, -1 if failed.
+ */
+int tev_set_write_handler2(tev_handle_t tev, int fd, void (*handler)(int fd, void* ctx), void* ctx);
 
 #ifdef __cplusplus
 }

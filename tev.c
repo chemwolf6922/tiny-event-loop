@@ -45,12 +45,29 @@ typedef struct
     void *ctx;
 } tev_timeout_t;
 
+typedef enum
+{
+    TEV_FD_HANDLER_VERSION_NONE = 0,
+    TEV_FD_HANDLER_VERSION_1 = 1,
+    TEV_FD_HANDLER_VERSION_2 = 2,
+} tev_fd_handler_version_t;
+
 typedef struct
 {
-    void(*read_handler)(void* ctx);
-    void* read_ctx;
-    void(*write_handler)(void* ctx);
-    void* write_ctx;
+    tev_fd_handler_version_t version;
+    union
+    {
+        void (*v1)(void* ctx);
+        void (*v2)(int fd, void* ctx);
+    };
+    void* ctx;
+} tev_versioned_fd_handler_t;
+
+typedef struct
+{
+    int fd;
+    tev_versioned_fd_handler_t read_handler;
+    tev_versioned_fd_handler_t write_handler;
 } tev_fd_handler_t;
 
 /* pre defined functions */
@@ -179,10 +196,36 @@ void tev_main_loop(tev_handle_t handle)
             if(fd_handler != NULL)
             {
                 tev->fd_handler_freed_in_read_handler = false;
-                if((events[i].filter == EVFILT_READ) && fd_handler->read_handler)
-                    fd_handler->read_handler(fd_handler->read_ctx);
-                if((events[i].filter == EVFILT_WRITE) && (!tev->fd_handler_freed_in_read_handler) && fd_handler->write_handler)
-                    fd_handler->write_handler(fd_handler->write_ctx);
+                if((events[i].filter == EVFILT_READ)
+                    && fd_handler->read_handler.version != TEV_FD_HANDLER_VERSION_NONE)
+                {
+                    switch (fd_handler->read_handler.version)
+                    {
+                        case TEV_FD_HANDLER_VERSION_1:
+                            fd_handler->read_handler.v1(fd_handler->read_handler.ctx);
+                            break;
+                        case TEV_FD_HANDLER_VERSION_2:
+                            fd_handler->read_handler.v2(fd_handler->fd, fd_handler->read_handler.ctx);
+                            break;
+                        default:
+                            break;
+                    }
+                }
+                if((events[i].filter == EVFILT_WRITE) && (!tev->fd_handler_freed_in_read_handler)
+                    && fd_handler->write_handler.version != TEV_FD_HANDLER_VERSION_NONE)
+                {
+                    switch (fd_handler->write_handler.version)
+                    {
+                        case TEV_FD_HANDLER_VERSION_1:
+                            fd_handler->write_handler.v1(fd_handler->write_handler.ctx);
+                            break;
+                        case TEV_FD_HANDLER_VERSION_2:
+                            fd_handler->write_handler.v2(fd_handler->fd, fd_handler->write_handler.ctx);
+                            break;
+                        default:
+                            break;
+                    }
+                }
             }
         }
 #else
@@ -196,10 +239,36 @@ void tev_main_loop(tev_handle_t handle)
             if(fd_handler != NULL)
             {
                 tev->fd_handler_freed_in_read_handler = false;
-                if(((events[i].events & EPOLLIN) || (events[i].events & EPOLLHUP)) && fd_handler->read_handler)
-                    fd_handler->read_handler(fd_handler->read_ctx);
-                if((events[i].events & EPOLLOUT) && (!tev->fd_handler_freed_in_read_handler) && fd_handler->write_handler)
-                    fd_handler->write_handler(fd_handler->write_ctx);
+                if(((events[i].events & EPOLLIN) || (events[i].events & EPOLLHUP))
+                    && fd_handler->read_handler.version != TEV_FD_HANDLER_VERSION_NONE)
+                {
+                    switch (fd_handler->read_handler.version)
+                    {
+                        case TEV_FD_HANDLER_VERSION_1:
+                            fd_handler->read_handler.v1(fd_handler->read_handler.ctx);
+                            break;
+                        case TEV_FD_HANDLER_VERSION_2:
+                            fd_handler->read_handler.v2(fd_handler->fd, fd_handler->read_handler.ctx);
+                            break;
+                        default:
+                            break;
+                    }
+                }
+                if((events[i].events & EPOLLOUT) && (!tev->fd_handler_freed_in_read_handler)
+                    && fd_handler->write_handler.version != TEV_FD_HANDLER_VERSION_NONE)
+                {
+                    switch (fd_handler->write_handler.version)
+                    {
+                        case TEV_FD_HANDLER_VERSION_1:
+                            fd_handler->write_handler.v1(fd_handler->write_handler.ctx);
+                            break;
+                        case TEV_FD_HANDLER_VERSION_2:
+                            fd_handler->write_handler.v2(fd_handler->fd, fd_handler->write_handler.ctx);
+                            break;
+                        default:
+                            break;
+                    }
+                }
             }
         }
 #endif
@@ -305,7 +374,7 @@ int tev_clear_timeout(tev_handle_t tev_handle, tev_timeout_handle_t handle)
 /* Fd read handler */
 
 
-static int tev_set_read_write_handler(tev_handle_t handle, int fd, void (*handler)(void* ctx), void* ctx, bool is_read)
+static int tev_set_read_write_handler(tev_handle_t handle,int fd, tev_versioned_fd_handler_t* handler, bool is_read)
 {
     if(!handle)
         return -1;
@@ -318,10 +387,7 @@ static int tev_set_read_write_handler(tev_handle_t handle, int fd, void (*handle
         if(!fd_handler)
             return -1;
         memset(fd_handler,0,sizeof(tev_fd_handler_t));
-        fd_handler->read_handler = NULL;
-        fd_handler->read_ctx = NULL;
-        fd_handler->write_handler = NULL;
-        fd_handler->write_ctx = NULL;
+        fd_handler->fd = fd;
         if(map_add(tev->fd_handlers,&fd,sizeof(fd),fd_handler)==NULL)
         {
             free(fd_handler);
@@ -329,22 +395,22 @@ static int tev_set_read_write_handler(tev_handle_t handle, int fd, void (*handle
         }
     }
     /* adjust the content of fd_handler */
-    bool read_handler_existed = fd_handler->read_handler != NULL;
-    bool write_handler_existed = fd_handler->write_handler != NULL;
+    bool read_handler_existed = fd_handler->read_handler.version != TEV_FD_HANDLER_VERSION_NONE;
+    bool write_handler_existed = fd_handler->write_handler.version != TEV_FD_HANDLER_VERSION_NONE;
     if(is_read)
     {
-        fd_handler->read_handler = handler;
-        fd_handler->read_ctx = ctx;
+        fd_handler->read_handler = *handler;
     }
     else
     {
-        fd_handler->write_handler = handler;
-        fd_handler->write_ctx = ctx;
+        fd_handler->write_handler = *handler;
     }
+    bool read_handler_exists_now = fd_handler->read_handler.version != TEV_FD_HANDLER_VERSION_NONE;
+    bool write_handler_exists_now = fd_handler->write_handler.version != TEV_FD_HANDLER_VERSION_NONE;
 #ifdef __APPLE__
     int ret = 0;
     /** cahnge kqueue settings */
-    if(read_handler_existed && (fd_handler->read_handler == NULL))
+    if(read_handler_existed && !read_handler_exists_now)
     {
         /** delete read event */
         struct kevent ev;
@@ -355,19 +421,19 @@ static int tev_set_read_write_handler(tev_handle_t handle, int fd, void (*handle
             goto finish_kqueue_ops;
         }
     }
-    if((!read_handler_existed) && (fd_handler->read_handler != NULL))
+    if((!read_handler_existed) && read_handler_exists_now)
     {
         /** add read event */
         struct kevent ev;
         EV_SET(&ev, fd, EVFILT_READ, EV_ADD, 0, 0, fd_handler);
         if(kevent(tev->epollfd,&ev,1,NULL,0,NULL) == -1)
         {
-            fd_handler->read_handler = NULL;
+            memset(&fd_handler->read_handler, 0, sizeof(fd_handler->read_handler));
             ret = -1;
             goto finish_kqueue_ops;
         }
     }
-    if(write_handler_existed && (fd_handler->write_handler == NULL))
+    if(write_handler_existed && !write_handler_exists_now)
     {
         /** delete write event */
         struct kevent ev;
@@ -378,21 +444,21 @@ static int tev_set_read_write_handler(tev_handle_t handle, int fd, void (*handle
             goto finish_kqueue_ops;
         }
     }
-    if((!read_handler_existed) && (fd_handler->write_handler != NULL))
+    if((!write_handler_existed) && write_handler_exists_now)
     {
         /** add write event */
         struct kevent ev;
         EV_SET(&ev, fd, EVFILT_WRITE, EV_ADD, 0, 0, fd_handler);
         if(kevent(tev->epollfd,&ev,1,NULL,0,NULL) == -1)
         {
-            fd_handler->read_handler = NULL;
+            memset(&fd_handler->write_handler, 0, sizeof(fd_handler->write_handler));
             ret = -1;
             goto finish_kqueue_ops;
         }
     }
 finish_kqueue_ops:
     /** clear map entry */
-    if((fd_handler->read_handler == NULL) && (fd_handler->write_handler == NULL))
+    if(!read_handler_exists_now && !write_handler_exists_now)
     {
         map_remove(tev->fd_handlers,&fd,sizeof(fd));
         free(fd_handler);
@@ -402,7 +468,7 @@ finish_kqueue_ops:
     return ret;
 #else
     /* change epoll settings */
-    if((fd_handler->read_handler == NULL) && (fd_handler->write_handler == NULL))
+    if(!read_handler_exists_now && !write_handler_exists_now)
     {
         /* remove from epoll and map */
         epoll_ctl(tev->epollfd,EPOLL_CTL_DEL,fd,NULL);
@@ -416,9 +482,9 @@ finish_kqueue_ops:
         /* add to epoll */
         struct epoll_event ev;
         memset(&ev,0,sizeof(ev));
-        if(fd_handler->read_handler != NULL)
+        if(fd_handler->read_handler.version != TEV_FD_HANDLER_VERSION_NONE)
             ev.events |= EPOLLIN;
-        if(fd_handler->write_handler != NULL)
+        if(fd_handler->write_handler.version != TEV_FD_HANDLER_VERSION_NONE)
             ev.events |= EPOLLOUT;
         ev.data.ptr = fd_handler;
         if(epoll_ctl(tev->epollfd,EPOLL_CTL_ADD,fd,&ev) < 0)
@@ -428,14 +494,15 @@ finish_kqueue_ops:
             return -1;
         }
     }
-    else if( (read_handler_existed != (fd_handler->read_handler!=NULL)) || (write_handler_existed != (fd_handler->write_handler!=NULL)) )
+    else if((read_handler_existed != read_handler_exists_now)
+        || (write_handler_existed != write_handler_exists_now))
     {
         /* adjust epoll if needed */
         struct epoll_event ev;
         memset(&ev,0,sizeof(ev));
-        if(fd_handler->read_handler != NULL)
+        if(read_handler_exists_now)
             ev.events |= EPOLLIN;
-        if(fd_handler->write_handler != NULL)
+        if(write_handler_exists_now)
             ev.events |= EPOLLOUT;
         ev.data.ptr = fd_handler;
         if(epoll_ctl(tev->epollfd,EPOLL_CTL_MOD,fd,&ev) < 0)
@@ -451,10 +518,40 @@ finish_kqueue_ops:
 
 int tev_set_read_handler(tev_handle_t handle, int fd, void (*handler)(void *ctx), void *ctx)
 {
-    return tev_set_read_write_handler(handle,fd,handler,ctx,true);
+    tev_versioned_fd_handler_t versioned_handler;
+    memset(&versioned_handler,0,sizeof(versioned_handler));
+    versioned_handler.version = handler != NULL ? TEV_FD_HANDLER_VERSION_1 : TEV_FD_HANDLER_VERSION_NONE;
+    versioned_handler.v1 = handler;
+    versioned_handler.ctx = ctx;
+    return tev_set_read_write_handler(handle,fd,&versioned_handler,true);
+}
+
+int tev_set_read_handler2(tev_handle_t handle, int fd, void (*handler)(int fd, void* ctx), void* ctx)
+{
+    tev_versioned_fd_handler_t versioned_handler;
+    memset(&versioned_handler,0,sizeof(versioned_handler));
+    versioned_handler.version = handler != NULL ? TEV_FD_HANDLER_VERSION_2 : TEV_FD_HANDLER_VERSION_NONE;
+    versioned_handler.v2 = handler;
+    versioned_handler.ctx = ctx;
+    return tev_set_read_write_handler(handle,fd,&versioned_handler,true);
 }
 
 int tev_set_write_handler(tev_handle_t handle, int fd, void (*handler)(void* ctx), void* ctx)
 {
-    return tev_set_read_write_handler(handle,fd,handler,ctx,false);
+    tev_versioned_fd_handler_t versioned_handler;
+    memset(&versioned_handler,0,sizeof(versioned_handler));
+    versioned_handler.version = handler != NULL ? TEV_FD_HANDLER_VERSION_1 : TEV_FD_HANDLER_VERSION_NONE;
+    versioned_handler.v1 = handler;
+    versioned_handler.ctx = ctx;
+    return tev_set_read_write_handler(handle,fd,&versioned_handler,false);
+}
+
+int tev_set_write_handler2(tev_handle_t handle, int fd, void (*handler)(int fd, void* ctx), void* ctx)
+{
+    tev_versioned_fd_handler_t versioned_handler;
+    memset(&versioned_handler,0,sizeof(versioned_handler));
+    versioned_handler.version = handler != NULL ? TEV_FD_HANDLER_VERSION_2 : TEV_FD_HANDLER_VERSION_NONE;
+    versioned_handler.v2 = handler;
+    versioned_handler.ctx = ctx;
+    return tev_set_read_write_handler(handle,fd,&versioned_handler,false);
 }

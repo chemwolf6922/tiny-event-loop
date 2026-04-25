@@ -557,6 +557,187 @@ static void test_timeout_context(void)
     tev_free_ctx(ctx);
 }
 
+/* ===== Test: read handler v2 (receives fd) ===== */
+
+typedef struct {
+    tev_handle_t tev;
+    int read_fd;
+    int write_fd;
+    char received[64];
+    int received_len;
+    int received_fd;
+} read_test_v2_ctx_t;
+
+static void on_read_ready_v2(int fd, void *ctx)
+{
+    read_test_v2_ctx_t *t = (read_test_v2_ctx_t *)ctx;
+    t->received_fd = fd;
+    ssize_t n = read(fd, t->received + t->received_len,
+                     sizeof(t->received) - (size_t)t->received_len - 1);
+    if (n > 0)
+        t->received_len += (int)n;
+    t->received[t->received_len] = '\0';
+    tev_set_read_handler2(t->tev, fd, NULL, NULL);
+}
+
+static void on_write_test_data_v2(void *ctx)
+{
+    read_test_v2_ctx_t *t = (read_test_v2_ctx_t *)ctx;
+    const char *msg = "world";
+    ssize_t n = write(t->write_fd, msg, strlen(msg) + 1);
+    (void)n;
+}
+
+static void test_read_handler_v2(void)
+{
+    printf("test_read_handler_v2\n");
+
+    tev_handle_t ctx = tev_create_ctx();
+    int fds[2];
+    create_pipe(fds);
+
+    read_test_v2_ctx_t tctx;
+    memset(&tctx, 0, sizeof(tctx));
+    tctx.tev = ctx;
+    tctx.read_fd = fds[0];
+    tctx.write_fd = fds[1];
+    tctx.received_fd = -1;
+
+    int ret = tev_set_read_handler2(ctx, fds[0], on_read_ready_v2, &tctx);
+    ASSERT_EQ(ret, 0, "set_read_handler2 returns 0");
+
+    tev_set_timeout(ctx, on_write_test_data_v2, &tctx, 10);
+
+    tev_main_loop(ctx);
+
+    ASSERT_STR_EQ(tctx.received, "world", "received correct data via read handler v2");
+    ASSERT_EQ(tctx.received_fd, fds[0], "read handler v2 received correct fd");
+
+    close(fds[0]);
+    close(fds[1]);
+    tev_free_ctx(ctx);
+}
+
+/* ===== Test: write handler v2 (receives fd) ===== */
+
+typedef struct {
+    tev_handle_t tev;
+    int write_fd;
+    int write_handler_called;
+    int received_fd;
+} write_test_v2_ctx_t;
+
+static void on_write_ready_v2(int fd, void *ctx)
+{
+    write_test_v2_ctx_t *t = (write_test_v2_ctx_t *)ctx;
+    t->write_handler_called++;
+    t->received_fd = fd;
+    tev_set_write_handler2(t->tev, fd, NULL, NULL);
+}
+
+static void test_write_handler_v2(void)
+{
+    printf("test_write_handler_v2\n");
+
+    tev_handle_t ctx = tev_create_ctx();
+    int fds[2];
+    create_pipe(fds);
+
+    write_test_v2_ctx_t tctx = {
+        .tev = ctx, .write_fd = fds[1], .write_handler_called = 0, .received_fd = -1
+    };
+
+    int ret = tev_set_write_handler2(ctx, fds[1], on_write_ready_v2, &tctx);
+    ASSERT_EQ(ret, 0, "set_write_handler2 returns 0");
+
+    tev_main_loop(ctx);
+
+    ASSERT_EQ(tctx.write_handler_called, 1, "write handler v2 called exactly once");
+    ASSERT_EQ(tctx.received_fd, fds[1], "write handler v2 received correct fd");
+
+    close(fds[0]);
+    close(fds[1]);
+    tev_free_ctx(ctx);
+}
+
+/* ===== Test: read + write v2 on same pipe ===== */
+
+typedef struct {
+    tev_handle_t tev;
+    int read_fd;
+    int write_fd;
+    int read_called;
+    int write_called;
+    char read_buf[64];
+} rw_test_v2_ctx_t;
+
+static void on_rw_write_ready_v2(int fd, void *ctx)
+{
+    rw_test_v2_ctx_t *t = (rw_test_v2_ctx_t *)ctx;
+    t->write_called++;
+    const char *msg = "v2data";
+    ssize_t n = write(fd, msg, strlen(msg) + 1);
+    (void)n;
+    tev_set_write_handler2(t->tev, fd, NULL, NULL);
+}
+
+static void on_rw_read_ready_v2(int fd, void *ctx)
+{
+    rw_test_v2_ctx_t *t = (rw_test_v2_ctx_t *)ctx;
+    t->read_called++;
+    ssize_t n = read(fd, t->read_buf, sizeof(t->read_buf) - 1);
+    if (n > 0)
+        t->read_buf[n] = '\0';
+    tev_set_read_handler2(t->tev, fd, NULL, NULL);
+}
+
+static void test_read_write_v2_same_pipe(void)
+{
+    printf("test_read_write_v2_same_pipe\n");
+
+    tev_handle_t ctx = tev_create_ctx();
+    int fds[2];
+    create_pipe(fds);
+
+    rw_test_v2_ctx_t tctx;
+    memset(&tctx, 0, sizeof(tctx));
+    tctx.tev = ctx;
+    tctx.read_fd = fds[0];
+    tctx.write_fd = fds[1];
+
+    tev_set_read_handler2(ctx, fds[0], on_rw_read_ready_v2, &tctx);
+    tev_set_write_handler2(ctx, fds[1], on_rw_write_ready_v2, &tctx);
+
+    tev_main_loop(ctx);
+
+    ASSERT_EQ(tctx.write_called, 1, "write handler v2 called");
+    ASSERT_EQ(tctx.read_called, 1, "read handler v2 called");
+    ASSERT_STR_EQ(tctx.read_buf, "v2data", "read correct data via v2");
+
+    close(fds[0]);
+    close(fds[1]);
+    tev_free_ctx(ctx);
+}
+
+/* ===== Test: set_read_handler2 / set_write_handler2 with NULL tev ===== */
+
+static void dummy_handler_v2(int fd, void *ctx)
+{
+    (void)fd;
+    (void)ctx;
+}
+
+static void test_fd_handler_v2_null_ctx(void)
+{
+    printf("test_fd_handler_v2_null_ctx\n");
+
+    int ret = tev_set_read_handler2(NULL, 0, dummy_handler_v2, NULL);
+    ASSERT_EQ(ret, -1, "set_read_handler2 on NULL ctx returns -1");
+
+    ret = tev_set_write_handler2(NULL, 0, dummy_handler_v2, NULL);
+    ASSERT_EQ(ret, -1, "set_write_handler2 on NULL ctx returns -1");
+}
+
 /* ===== Main ===== */
 
 int main(int argc, char const *argv[])
@@ -582,6 +763,10 @@ int main(int argc, char const *argv[])
     test_overwrite_read_handler();
     test_fd_handler_null_ctx();
     test_remove_handler_in_callback();
+    test_read_handler_v2();
+    test_write_handler_v2();
+    test_read_write_v2_same_pipe();
+    test_fd_handler_v2_null_ctx();
 
     PRINT_RESULTS();
 
