@@ -1,5 +1,9 @@
 # Changelog
 
+## v1.4.0
+- Add v2 read write handler API that includes the fd in the callback.
+- Fix macOS clear write handler bug.
+
 ## v1.3.6
 - Switch build system from Makefile to CMake
 - Remove bundled xxHash; link to system xxHash via pkg-config

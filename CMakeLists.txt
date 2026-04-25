@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.14)
-project(tev VERSION 1.3.6 LANGUAGES C)
+project(tev VERSION 1.4.0 LANGUAGES C)
 
 set(CMAKE_VERBOSE_MAKEFILE ON)
 set(CMAKE_C_STANDARD 99)
